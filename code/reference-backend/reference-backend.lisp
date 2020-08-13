@@ -21,7 +21,8 @@
   ())
 
 (defun make-reference-backend ()
-  (make-instance 'reference-backend))
+  (make-instance 'reference-backend
+    :machine (host-machine)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -65,7 +66,17 @@
    (element-type range-immediate)
    #'first))
 
-(defmethod evaluate ((lazy-map lazy-map))
+(defmethod evaluate ((lazy-map single-value-lazy-map))
+  (let ((inputs (mapcar #'evaluate (inputs lazy-map))))
+    (make-simple-immediate
+     (shape lazy-map)
+     (element-type lazy-map)
+     (lambda (index)
+       (values
+        (apply (operator lazy-map)
+               (mapcar (lambda (input) (iref input index)) inputs)))))))
+
+(defmethod evaluate ((lazy-map multiple-value-lazy-map))
   (let ((inputs (mapcar #'evaluate (inputs lazy-map))))
     (make-simple-immediate
      (shape lazy-map)

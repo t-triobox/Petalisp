@@ -26,46 +26,138 @@
 
 (defgeneric value-n (array))
 
+(defgeneric number-of-values (array))
+
 (defgeneric storage (array))
 
 (defgeneric operator (array))
 
-(defgeneric refcount (array))
-
-(defgeneric increment-refcount (array))
-
 (defgeneric lazy-array (array))
 
 (defgeneric replace-lazy-array (lazy-array replacement))
+
+(defgeneric refcount (array))
+
+(defgeneric depth (array))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Classes
 
 (defclass lazy-array ()
-  ((%computable :initarg :computable :reader computablep :accessor %computablep)))
+  ((%computable
+    :initarg :computable
+    :reader computablep
+    :accessor %computablep)))
 
 (defclass immediate (lazy-array)
   ()
   (:default-initargs :computable t))
 
 (defclass non-immediate (lazy-array)
-  ((%inputs :initarg :inputs :reader inputs)))
+  ((%inputs
+    :initarg :inputs
+    :reader inputs
+    :type list)))
 
 (defclass empty-array (immediate)
   ())
 
 (defclass non-empty-array (lazy-array)
-  ((%shape :initarg :shape :reader shape :reader shape)
-   (%ntype :initarg :ntype :reader element-ntype))
+  ((%shape
+    :initarg :shape
+    :reader shape)
+   (%ntype
+    :initarg :ntype
+    :reader element-ntype)
+   (%refcount
+    :reader refcount
+    :accessor %refcount
+    :type unsigned-byte
+    :initform 0)
+   (%depth
+    :reader depth
+    :accessor %depth
+    :type unsigned-byte
+    :initform 0))
   (:default-initargs
    :shape (~)
    :ntype (petalisp.type-inference:ntype 't)))
 
+(defclass non-empty-immediate (non-empty-array immediate)
+  ())
+
+(defclass non-empty-non-immediate (non-empty-array non-immediate)
+  ())
+
+(defclass array-immediate (non-empty-immediate)
+  ((%reusablep
+    :initarg :reusablep
+    :initform nil
+    :reader reusablep)
+   (%storage
+    :initarg :storage
+    :type simple-array
+    :reader storage)))
+
+(defclass range-immediate (non-empty-immediate)
+  ())
+
+(defclass lazy-map (non-empty-non-immediate)
+  ((%operator
+    :initarg :operator
+    :reader operator
+    :type (or function symbol))))
+
+(defclass single-value-lazy-map (lazy-map)
+  ())
+
+(defclass multiple-value-lazy-map (lazy-map)
+  ((%number-of-values
+    :initarg :number-of-values
+    :reader number-of-values
+    :type (integer 0 (#.multiple-values-limit)))
+   (%value-n
+    :initarg :value-n
+    :reader value-n
+    :type (integer 0 (#.(1- multiple-values-limit))))
+   ;; The identity is a cons cell that is shared among all instances that
+   ;; are the result of mapping a multiple valued operator over some
+   ;; arguments.  It is later used to merge instances into a single kernel
+   ;; whenever possible.
+   (%identity
+    :initarg :identity
+    :reader identity-of
+    :type cons)))
+
+(defclass lazy-fuse (non-empty-non-immediate)
+  ())
+
+(defclass lazy-reshape (non-empty-non-immediate)
+  ((%transformation
+    :initarg :transformation
+    :reader transformation)))
+
+(defclass parameter (non-empty-immediate)
+  ()
+  (:default-initargs :computable nil :shape (~)))
+
+(defclass optional-parameter (parameter)
+  ((%value
+    :initarg :value
+    :initform nil
+    :accessor optional-parameter-value)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Methods
+
+;;; Turn any supplied :element-type argument into a suitable :ntype.
 (defmethod shared-initialize
     ((instance non-empty-array) slot-names
      &rest args
-     &key (element-type nil element-type-supplied-p))
+     &key
+       (element-type nil element-type-supplied-p))
   (if (and element-type-supplied-p
            (or (eql slot-names 't)
                (member '%ntype slot-names)))
@@ -74,49 +166,21 @@
              args)
       (call-next-method)))
 
-(defclass non-empty-immediate (non-empty-array immediate)
-  ())
-
-(defclass non-empty-non-immediate (non-empty-array non-immediate)
-  ((%refcount :initform 0 :reader refcount :accessor %refcount)))
-
-(defclass array-immediate (non-empty-immediate)
-  ((%reusablep :initarg :reusablep :initform nil :reader reusablep)
-   (%storage :initarg :storage :reader storage)))
-
-(defclass range-immediate (non-empty-immediate)
-  ())
-
-(defclass lazy-map (non-empty-non-immediate)
-  ((%operator :initarg :operator :reader operator)
-   (%value-n :initarg :value-n :reader value-n :type (integer 0 #.multiple-values-limit))))
-
-(defclass lazy-fuse (non-empty-non-immediate)
-  ())
-
-(defclass lazy-reshape (non-empty-non-immediate)
-  ((%transformation :initarg :transformation :reader transformation)))
-
-(defclass parameter (non-empty-immediate)
-  ()
-  (:default-initargs :computable nil :shape (~)))
-
-(defclass optional-parameter (parameter)
-  ((%value :initarg :value :initform nil :accessor optional-parameter-value)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;
-;;; Methods
-
 (defmethod initialize-instance :after
     ((non-immediate non-immediate) &key &allow-other-keys)
-  (let ((computablep t))
-    (loop for input in (inputs non-immediate) do
-      (increment-refcount input)
-      (unless (computablep input)
-        (setf computablep nil)))
-    (setf (%computablep non-immediate)
-          computablep)))
+  (loop
+    with computablep = t
+    for input in (inputs non-immediate)
+    sum 1 into refcount fixnum
+    maximize (depth input) into depth
+    unless (computablep input) do (setf computablep nil)
+      finally
+         (setf (%computablep non-immediate)
+               computablep)
+         (setf (%refcount non-immediate)
+               refcount)
+         (setf (%depth non-immediate)
+               (1+ depth))))
 
 (defmethod lazy-array ((lazy-array lazy-array))
   lazy-array)
@@ -232,16 +296,6 @@
 (defun input (object)
   (destructuring-bind (input) (inputs object) input))
 
-(defmethod refcount ((object t))
-  0)
-
-(defmethod increment-refcount ((object t))
-  (declare (ignore object))
-  (values))
-
-(defmethod increment-refcount ((non-empty-non-immediate non-empty-non-immediate))
-  (incf (%refcount non-empty-non-immediate)))
-
 (defmethod print-object ((empty-array empty-array) stream)
   (print-unreadable-object (empty-array stream :type t :identity t)))
 
@@ -270,13 +324,26 @@
 
 (defun make-array-immediate (array &optional reusablep)
   (check-type array array)
-  (if (zerop (array-total-size array))
-      (empty-array)
-      (make-instance 'array-immediate
-        :shape (shape array)
-        :storage array
-        :reusablep reusablep
-        :ntype (petalisp.type-inference:array-element-ntype array))))
+  (cond ((zerop (array-total-size array))
+         (empty-array))
+        ((zerop (array-rank array))
+         (make-scalar-immediate (aref array)))
+        (t
+         (make-instance 'array-immediate
+           :shape (shape array)
+           :storage (simplify-array array)
+           :reusablep reusablep
+           :ntype (petalisp.type-inference:array-element-ntype array)))))
+
+(defun simplify-array (array)
+  (if (typep array 'simple-array)
+      array
+      (let ((copy (make-array (array-dimensions array)
+                              :element-type (array-element-type array))))
+        (loop for index below (array-total-size array) do
+          (setf (row-major-aref copy index)
+                (row-major-aref array index)))
+        copy)))
 
 (defun make-range-immediate (range)
   (if (size-one-range-p range)
@@ -294,19 +361,18 @@
          (petalisp.type-inference:ntype-of (range-end range))))))
 
 (defun indices (array-or-shape &optional (axis 0))
-  (cond ((null array-or-shape)
-         (empty-array))
-        ((shapep array-or-shape)
-         (let ((rank (shape-rank array-or-shape)))
-           (unless (<= 0 axis (1- rank))
-             (error "~@<Invalid axis ~A for a shape with rank ~D.~:@>" axis rank))
-           (lazy-reshape
-            (make-range-immediate (nth axis (shape-ranges array-or-shape)))
-            array-or-shape
-            (make-transformation
-             :input-rank rank
-             :output-mask (vector axis)))))
-        (t (indices (shape array-or-shape)))))
+  (if (null array-or-shape)
+      (empty-array)
+      (let* ((shape (shape array-or-shape))
+             (rank (shape-rank shape)))
+        (unless (<= 0 axis (1- rank))
+          (error "~@<Invalid axis ~A for a shape with rank ~D.~:@>" axis rank))
+        (lazy-reshape
+         (make-range-immediate (nth axis (shape-ranges shape)))
+         shape
+         (make-transformation
+          :input-rank rank
+          :output-mask (vector axis))))))
 
 (defun empty-array ()
   (load-time-value

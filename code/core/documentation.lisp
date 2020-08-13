@@ -132,6 +132,16 @@ contains."
   (shape-ranges (~ 1 ~ 2 ~ 3))
   (shape-ranges (~ 0 9 ~ 0 9)))
 
+(document-function shape-dimensions
+  "Return the array dimensions corresponding to a shape.  Signal an error
+if any of the ranges of the shape have a nonzero start or a step size other
+than one."
+  (shape-dimensions (~))
+  (shape-dimensions (~ 0 9))
+  (shape-dimensions (~ 1 9))
+  (shape-dimensions (~ 0 2 9))
+  (shape-dimensions (~ 0 4 ~ 0 5 ~ 0 6)))
+
 (document-function shape-size
   "Returns that number of integer tuples denoted by the supplied shape."
   (shape-size (~))
@@ -238,6 +248,28 @@ constraints.")
   (transformation-equal
    (τ (i j) (i j))
    (τ (i j) (j i))))
+
+(document-function transformation-similar
+  "Check whether two supplied transformations are similar.  Two
+transformations are similar if they have the same permutation, the same
+inputs constraints, the same scalings, and offsets whose entries differ in
+at most DELTA."
+  (transformation-similar
+   (τ (a) (a))
+   (τ (a) ((1+ a)))
+   0)
+  (transformation-similar
+   (τ (a) (a))
+   (τ (a) ((1+ a)))
+   1)
+  (transformation-similar
+   (τ (i j) ((+ j 2) i))
+   (τ (i j) ((- j 1) i))
+   2)
+  (transformation-similar
+   (τ (i j) ((+ j 2) i))
+   (τ (i j) ((- j 1) i))
+   3))
 
 (document-function compose-transformations
   "Returns a single transformation that is equivalent to consecutive

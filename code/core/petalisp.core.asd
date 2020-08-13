@@ -4,7 +4,9 @@
 
   :depends-on
   ("alexandria"
+   "split-sequence"
    "trivial-macroexpand-all"
+   "trivial-garbage"
    "bordeaux-threads"
    "lparallel"
    "trivia"
@@ -26,5 +28,6 @@
    (:file "lazy-fuse")
    (:file "lazy-map")
    (:file "substitute-array")
+   (:file "machine-model")
    (:file "backend")
    (:file "documentation")))

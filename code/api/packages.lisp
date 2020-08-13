@@ -17,7 +17,8 @@
    #:document-setf-expander
    #:document-structure
    #:document-type
-   #:document-variable)
+   #:document-variable
+   #:defalias)
 
   (:export
 
@@ -123,6 +124,7 @@
    #:rank
    #:total-size
    #:refcount
+   #:depth
    #:input
    #:inputs
    #:value-n

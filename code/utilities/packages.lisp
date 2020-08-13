@@ -20,11 +20,29 @@
    #:document-variable
    #:document-variables
 
+   ;; bitfield.lisp
+   #:define-bitfield
+
+   ;; defalias.lisp
+   #:defalias
+
+   ;; deque.lisp
+   #:deque
+   #:dequep
+   #:make-deque
+   #:deque-push
+   #:deque-pop
+   #:deque-steal
+
    ;; extended-euclid.lisp
    #:extended-euclid
 
    ;; identical.lisp
    #:float-bits
+   #:+short-float-bits+
+   #:+single-float-bits+
+   #:+double-float-bits+
+   #:+long-float-bits+
 
    ;; identical.lisp
    #:identical
@@ -41,5 +59,17 @@
    #:prime-factors
    #:primep
 
+   ;; weak-set.lisp
+   #:weak-set
+   #:weak-set-p
+   #:make-weak-set
+   #:map-weak-set
+   #:weak-set-size
+   #:weak-set-add
+
    ;; with-collectors.lisp
-   #:with-collectors))
+   #:with-collectors
+
+   ;; number-of-cpus.lisp
+   #:number-of-cpus
+   ))

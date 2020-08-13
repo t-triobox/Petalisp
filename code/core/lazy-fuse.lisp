@@ -40,11 +40,7 @@
                                (shape lazy-array-1)
                                (shape lazy-array-2))))))
                  lazy-arrays :length 2 :copy nil)
-                (let ((shape (%make-shape
-                              (apply #'mapcar #'fuse-ranges
-                                     (mapcar (alexandria:compose #'shape-ranges #'shape)
-                                             lazy-arrays))
-                              rank))
+                (let ((shape (apply #'fuse-shapes (mapcar #'shape lazy-arrays)))
                       (ntype (reduce #'petalisp.type-inference:ntype-union
                                      lazy-arrays
                                      :key #'element-ntype)))
@@ -70,23 +66,4 @@
                         :inputs lazy-arrays
                         :shape shape)))))))))
 
-(defun fuse-ranges (&rest ranges)
-  (loop for range in ranges
-        minimize (range-start range) into start
-        maximize (range-end range) into end
-        finally
-           ;; Now, determine the second largest element in order to
-           ;; determine a suitable step size.
-           (loop for range in ranges
-                 minimize
-                 (if (= (range-start range) start)
-                     (if (size-one-range-p range)
-                         end
-                         (+ (range-start range)
-                            (range-step range)))
-                     (range-start range))
-                   into start+step
-                 finally
-                    (return-from
-                     fuse-ranges
-                     (range start (- start+step start) end)))))
+

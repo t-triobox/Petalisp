@@ -4,15 +4,22 @@
 
   :depends-on
   ("alexandria"
-   "trivia")
+   "atomics"
+   "trivia"
+   "trivial-garbage")
 
   :serial t
   :components
   ((:file "packages")
    (:file "documentation")
+   (:file "defalias")
+   (:file "deque")
+   (:file "bitfield")
    (:file "identical")
    (:file "memoization")
    (:file "extended-euclid")
    (:file "float-bits")
    (:file "prime-factors")
-   (:file "with-collectors")))
+   (:file "weak-set")
+   (:file "with-collectors")
+   (:file "number-of-cpus")))

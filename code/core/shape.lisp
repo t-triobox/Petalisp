@@ -114,6 +114,24 @@
              for range-2 in (shape-ranges shape-2)
              always (subrangep range-1 range-2))))
 
+(defun fuse-shapes (shape &rest more-shapes)
+  (declare (shape shape))
+  (let ((rank (shape-rank shape)))
+    (%make-shape
+     (apply #'mapcar #'fuse-ranges
+            (shape-ranges shape)
+            (loop for other-shape in more-shapes
+                  do (assert (= rank (shape-rank other-shape)))
+                  collect (shape-ranges other-shape)))
+     rank)))
+
+(defun shape-dimensions (shape)
+  (declare (shape shape))
+  (loop for range in (shape-ranges shape)
+        do (assert (= 0 (range-start range)))
+        do (assert (= 1 (range-step range)))
+        collect (range-size range)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; The ~ Notation for Shapes

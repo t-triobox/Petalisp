@@ -39,13 +39,17 @@
     ((graph ir-graph)
      (edge input-edge)
      (buffer petalisp.ir:buffer))
-  (petalisp.ir:buffer-inputs buffer))
+  (petalisp.utilities:with-collectors ((kernels collect))
+    (petalisp.ir:map-buffer-inputs #'collect buffer)
+    (kernels)))
 
 (defmethod graphviz-outgoing-edge-targets
     ((graph ir-graph)
      (edge output-edge)
      (buffer petalisp.ir:buffer))
-  (petalisp.ir:buffer-outputs buffer))
+  (petalisp.utilities:with-collectors ((kernels collect))
+    (petalisp.ir:map-buffer-outputs #'collect buffer)
+    (kernels)))
 
 (defmethod graphviz-incoming-edge-origins
     ((graph ir-graph)
@@ -110,7 +114,6 @@
      (buffer petalisp.ir:buffer))
   `(("shape" . ,(stringify (petalisp.ir:buffer-shape buffer)))
     ("ntype" . ,(stringify (petalisp.ir:buffer-ntype buffer)))
-    ("executedp" . ,(stringify (petalisp.ir:buffer-executedp buffer)))
     ("reusablep" . ,(stringify (petalisp.ir:buffer-reusablep buffer)))
     ("storage" . ,(stringify (type-of (petalisp.ir:buffer-storage buffer))))))
 

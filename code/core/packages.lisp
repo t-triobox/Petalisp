@@ -36,6 +36,7 @@
    #:range-end
    #:range-size
    #:subrangep
+   #:fuse-ranges
 
    ;; Shapes
    #:~
@@ -46,6 +47,7 @@
    #:shapep
    #:shape-rank
    #:shape-ranges
+   #:shape-dimensions
    #:shape-size
    #:shape-equal
    #:shape-difference-list
@@ -57,6 +59,7 @@
    #:enlarge-shape
    #:subdivide
    #:subshapep
+   #:fuse-shapes
 
    ;; Transformations
    #:τ
@@ -76,6 +79,7 @@
    #:identity-transformation
    #:invert-transformation
    #:transformation-equal
+   #:transformation-similar
    #:compose-transformations
    #:collapsing-transformation
    #:normalizing-transformation
@@ -100,11 +104,15 @@
    #:input
    #:inputs
    #:value-n
+   #:number-of-values
    #:operator
    #:storage
    #:refcount
+   #:depth
    #:lazy-array
    #:lazy-map
+   #:single-value-lazy-map
+   #:multiple-value-lazy-map
    #:lazy-reshape
    #:lazy-fuse
    #:immediate
@@ -127,8 +135,29 @@
    #:copy-arrays
    #:substitute-arrays
 
+   ;; Machine Model
+   #:memory
+   #:memory-name
+   #:memory-parent
+   #:memory-children
+   #:memory-processors
+   #:memory-size
+   #:memory-granularity
+   #:memory-latency
+   #:memory-bandwidth
+   #:memory-parent-bandwidth
+   #:processor
+   #:processor-name
+   #:processor-memory
+   #:machine
+   #:machine-name
+   #:machine-processors
+   #:machine-main-memory
+   #:host-machine
+
    ;; Backend
    #:*backend*
+   #:backend-machine
    #:compute-on-backend
    #:schedule-on-backend
    #:compile-network-on-backend

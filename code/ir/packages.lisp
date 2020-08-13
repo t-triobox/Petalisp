@@ -16,9 +16,6 @@
    ;; IR Conversion
    #:ir-from-lazy-arrays
 
-   ;; IR Normalization
-   #:normalize-ir
-
    ;; Structs
    #:instruction
    #:buffer
@@ -50,6 +47,8 @@
    #:map-buffers
    #:map-buffer-inputs
    #:map-buffer-outputs
+   #:map-buffer-load-instructions
+   #:map-buffer-store-instructions
    #:map-kernel-store-instructions
    #:map-kernel-load-instructions
    #:map-kernel-inputs
@@ -60,13 +59,11 @@
    ;; Accessors
    #:buffer-shape
    #:buffer-ntype
-   #:buffer-inputs
-   #:buffer-outputs
-   #:buffer-executedp
+   #:buffer-readers
+   #:buffer-writers
    #:buffer-reusablep
    #:buffer-storage
    #:kernel-iteration-space
-   #:kernel-executedp
    #:kernel-blueprint
    #:kernel-buffers
    #:kernel-highest-instruction-number
