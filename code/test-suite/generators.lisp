@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.test-suite)
 
@@ -43,7 +43,7 @@
            (step (funcall step-generator))
            (size (funcall size-generator))
            (end (+ start (* step (1- size)))))
-      (range start step end))))
+      (range start (if (< end start) (1- end) (1+ end)) step))))
 
 (defgenerator shape (&key (rank-generator (make-integer-generator :min 0 :max 5))
                           (range-generator (make-range-generator)))
@@ -62,7 +62,7 @@
       (loop for index below (array-total-size array) do
         (setf (row-major-aref array index)
               (funcall element-generator)))
-      (reshape array shape))))
+      (lazy-reshape array shape))))
 
 (defun ndarray (rank)
   (generate-lazy-array
@@ -86,17 +86,18 @@
     :rank-generator (constantly 2)
     :range-generator
     (make-range-generator
-     :start-generator (constantly 1)
+     :start-generator (constantly 0)
      :step-generator (constantly 1)
      :size-generator size-generator))))
 
 (defun reshape-randomly (array)
   (let* ((lazy-array (lazy-array array))
-         (rank (rank lazy-array))
+         (rank (shape-rank lazy-array))
          (generator (make-integer-generator :min -20 :max 21)))
-    (reshape lazy-array
-             (make-transformation
-              :input-rank rank
-              :output-rank rank
-              :scalings (loop repeat rank collect (funcall generator))
-              :output-mask (alexandria:shuffle (alexandria:iota rank))))))
+    (lazy-reshape
+     lazy-array
+     (make-transformation
+      :input-rank rank
+      :output-rank rank
+      :scalings (loop repeat rank collect (funcall generator))
+      :output-mask (alexandria:shuffle (alexandria:iota rank))))))

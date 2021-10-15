@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.scheduler)
 
@@ -118,5 +118,5 @@
         (decf size-2)
         (incf size-1))
       (values
-       (range start (+ start (1- size-1)))
+       (range start (+ start size-1))
        (range (+ start size-1) end)))))

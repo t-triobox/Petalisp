@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.type-inference)
 
@@ -27,7 +27,7 @@
           (let ((ntype (ntype type-specifier-ntype)))
             (cond ((ntype-subtypep object-ntype ntype)
                    (wrap-default (ntype '(not null))))
-                  ((ntype-subtypepc1 object-ntype ntype)
+                  ((ntype-subtypepc2 object-ntype ntype)
                    (wrap nil))
                   (t (wrap-default (ntype 'generalized-boolean)))))
           (wrap-default (ntype 'generalized-boolean))))))

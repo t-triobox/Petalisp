@@ -1,13 +1,22 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.type-inference)
 
+
 (define-differentiator / (number &rest more-numbers) index
-  (if (zerop index)
-      (apply (specializer '/) (wrap 1) more-numbers)
-      (apply (specializer '/)
-             (wrap (- number))
-             (nth (1- index) more-numbers) more-numbers)))
+  (cond ((null more-numbers)
+         (wrap (* -1 (expt number 2))))
+        ((zerop index)
+         (apply (specializer '/) (wrap 1) more-numbers))
+        (t
+         (apply (specializer '/)
+                (wrap (- number))
+                (loop for number in more-numbers
+                      for position from 1
+                      collect
+                      (if (= position index)
+                          (wrap (expt number 2))
+                          number))))))
 
 (define-simple-instruction (/ short-float/) (short-float) (short-float short-float))
 (define-simple-instruction (/ single-float/) (single-float) (single-float single-float))

@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.utilities)
 
@@ -19,16 +19,17 @@
   (with-output-to-string (stream)
     (write-string docstring stream)
     (unless (null example-forms)
-      (format stream "~&~%Example~P:" (length example-forms))
-      (loop for example-form in example-forms
-            for example-thunk in example-thunks do
-              (format stream "~&~% ~A~%" example-form)
-              (handler-case
-                  (format stream "~{  => ~A~%~}"
-                          (multiple-value-list
-                           (funcall example-thunk)))
-                (error (e)
-                  (format stream "  >> ~A" (class-name (class-of e)))))))))
+      (let ((*print-case* :downcase))
+        (format stream "~&~%Example~P:" (length example-forms))
+        (loop for example-form in example-forms
+              for example-thunk in example-thunks do
+                (format stream "~&~% ~A~%" example-form)
+                (handler-case
+                    (format stream "~{  => ~A~%~}"
+                            (multiple-value-list
+                             (funcall example-thunk)))
+                  (error (e)
+                    (format stream "  >> ~A" (class-name (class-of e))))))))))
 
 (defmacro expand-documentation (form &rest examples)
   `(build-documentation
@@ -74,6 +75,6 @@
   (define-multi-documenter document-functions document-function)
   (define-multi-documenter document-method-combinations document-method-combination)
   (define-multi-documenter document-setf-expanders document-setf-expander)
-  (define-multi-documenter documet-structures document-structure)
+  (define-multi-documenter document-structures document-structure)
   (define-multi-documenter document-types document-type)
   (define-multi-documenter document-variables document-variable))

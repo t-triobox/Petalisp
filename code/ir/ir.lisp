@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.ir)
 
@@ -12,17 +12,31 @@
   ;; The shape of the buffer.
   (shape nil :type shape)
   ;; The type code of all elements stored in the buffer.
-  (ntype nil)
+  (ntype nil :type petalisp.type-inference:ntype)
   ;; An alist whose keys are kernels writing to this buffer, and whose
   ;; values are all store instructions from that kernel into this buffer.
   (writers '() :type list)
   ;; An alist whose keys are kernels reading from this buffer, and whose
   ;; values are all load instructions from that kernel into this buffer.
   (readers '() :type list)
-  ;; Whether the buffer can be reused after its last use.
-  (reusablep nil :type boolean)
   ;; An opaque object, representing the allocated memory.
-  (storage nil))
+  (storage nil)
+  ;; A slot that can be used by the backend to attach further information
+  ;; to the buffer.
+  (data nil))
+
+(defun leaf-buffer-p (buffer)
+  (null (buffer-writers buffer)))
+
+(defun root-buffer-p (buffer)
+  (null (buffer-readers buffer)))
+
+(defun interior-buffer-p (buffer)
+  (not (or (leaf-buffer-p buffer)
+           (root-buffer-p buffer))))
+
+(defun buffer-size (buffer)
+  (shape-size (buffer-shape buffer)))
 
 ;;; A kernel represents a computation that, for each element in its
 ;;; iteration space, reads from some buffers and writes to some buffers.
@@ -35,13 +49,18 @@
   (sources '() :type list)
   ;; An alist whose keys are buffers, and whose values are all store
   ;; instructions referencing that buffer.
-  (targets '() :type list))
+  (targets '() :type list)
+  ;; A vector of instructions of the kernel, in top-to-bottom order.
+  (instruction-vector #() :type simple-vector)
+  ;; A slot that can be used by the backend to attach further information
+  ;; to the kernel.
+  (data nil))
 
 ;;; This function is a very ad-hoc approximation of the cost of executing
 ;;; the kernel.
 (defun kernel-cost (kernel)
-  (* (shape-size (kernel-iteration-space kernel))
-     (kernel-highest-instruction-number kernel)))
+  (max 1 (* (shape-size (kernel-iteration-space kernel))
+            (kernel-highest-instruction-number kernel))))
 
 ;;; The behavior of a kernel is described by its iteration space and its
 ;;; instructions.  The instructions form a DAG, whose leaves are load
@@ -57,10 +76,11 @@
 ;;; recomputed.
 ;;;
 ;;; Each instruction input is a cons cell, whose cdr is another
-;;; instruction, and whose car is an integer describing which of the
-;;; multiple values of the cdr is referenced.
+;;; instruction, and whose car is an integer denoting which of the multiple
+;;; values of the cdr is being referenced.
 (defstruct (instruction
             (:predicate instructionp)
+            (:copier nil)
             (:constructor nil))
   (number 0 :type fixnum)
   (inputs '() :type list))
@@ -69,18 +89,10 @@
 ;;; values that are the result of other instructions.
 (defstruct (call-instruction
             (:include instruction)
-            (:predicate call-instruction-p))
-  (operator nil :type (or function symbol)))
-
-(defstruct (single-value-call-instruction
-            (:include call-instruction)
-            (:constructor make-single-value-call-instruction
-                (operator inputs))))
-
-(defstruct (multiple-value-call-instruction
-            (:include call-instruction)
-            (:constructor make-multiple-value-call-instruction
-                (number-of-values operator inputs)))
+            (:predicate call-instruction-p)
+            (:copier nil)
+            (:constructor make-call-instruction (number-of-values operator inputs)))
+  (operator nil :type (or function symbol))
   (number-of-values nil :type (integer 0 (#.multiple-values-limit))))
 
 ;;; We call an instruction an iterating instruction, if its behavior
@@ -88,6 +100,7 @@
 (defstruct (iterating-instruction
             (:include instruction)
             (:predicate iterating-instruction-p)
+            (:copier nil)
             (:constructor nil)
             (:conc-name instruction-))
   (transformation nil :type transformation))
@@ -99,6 +112,7 @@
 (defstruct (iref-instruction
             (:include iterating-instruction)
             (:predicate iref-instruction-p)
+            (:copier nil)
             (:constructor make-iref-instruction
                 (transformation))))
 
@@ -109,9 +123,16 @@
 (defstruct (load-instruction
             (:include iterating-instruction)
             (:predicate load-instruction-p)
-            (:constructor make-load-instruction
+            (:copier nil)
+            (:constructor %make-load-instruction
                 (buffer transformation)))
   (buffer nil :type buffer))
+
+(defun make-load-instruction (kernel buffer transformation)
+  (let ((load-instruction (%make-load-instruction buffer transformation)))
+    (push load-instruction (alexandria:assoc-value (kernel-sources kernel) buffer))
+    (push load-instruction (alexandria:assoc-value (buffer-readers buffer) kernel))
+    load-instruction))
 
 ;;; A store instruction represents a write to main memory.  It stores its
 ;;; one and only input at the entry of the buffer storage specified by the
@@ -120,10 +141,30 @@
 (defstruct (store-instruction
             (:include iterating-instruction)
             (:predicate store-instruction-p)
-            (:constructor make-store-instruction
-                (value buffer transformation
-                 &aux (inputs (list value)))))
+            (:copier nil)
+            (:constructor %make-store-instruction
+                (inputs buffer transformation)))
   (buffer nil :type buffer))
+
+(defun make-store-instruction (kernel input buffer transformation)
+  (let ((store-instruction (%make-store-instruction (list input) buffer transformation)))
+    (push store-instruction (alexandria:assoc-value (kernel-targets kernel) buffer))
+    (push store-instruction (alexandria:assoc-value (buffer-writers buffer) kernel))
+    store-instruction))
+
+(defun store-instruction-input (store-instruction)
+  (declare (store-instruction store-instruction))
+  (first (store-instruction-inputs store-instruction)))
+
+(defgeneric instruction-number-of-values (instruction)
+  (:method ((call-instruction call-instruction))
+    (call-instruction-number-of-values call-instruction))
+  (:method ((iref-instruction iref-instruction))
+    1)
+  (:method ((load-instruction load-instruction))
+    1)
+  (:method ((store-instruction store-instruction))
+    0))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -273,20 +314,9 @@
   (map-buffers-and-kernels #'identity function root-buffers))
 
 (defun map-instructions (function kernel)
-  (map-kernel-store-instructions
-   (lambda (store-instruction)
-     (map-instruction-tree function store-instruction))
-   kernel))
-
-(defun map-instruction-tree (function root-instruction)
-  (labels ((process-node (instruction n)
-             (let ((new-n (instruction-number instruction)))
-               (when (< new-n n)
-                 (funcall function instruction)
-                 (map-instruction-inputs
-                  (lambda (next) (process-node next new-n))
-                  instruction)))))
-    (process-node root-instruction most-positive-fixnum)))
+  (let ((vector (kernel-instruction-vector kernel)))
+    (declare (simple-vector vector))
+    (map nil function vector)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -318,7 +348,7 @@
   (declare (buffer buffer)
            (transformation transformation))
   (setf (buffer-shape buffer)
-        (transform (buffer-shape buffer) transformation))
+        (transform-shape (buffer-shape buffer) transformation))
   ;; After rotating a buffer, rotate all loads and stores referencing the
   ;; buffer to preserve the semantics of the IR.
   (map-buffer-store-instructions
@@ -336,7 +366,7 @@
            (transformation transformation))
   (unless (identity-transformation-p transformation)
     (setf (kernel-iteration-space kernel)
-          (transform (kernel-iteration-space kernel) transformation))
+          (transform-shape (kernel-iteration-space kernel) transformation))
     (let ((inverse (invert-transformation transformation)))
       (map-instructions
        (lambda (instruction)
@@ -347,25 +377,49 @@
 ;;;
 ;;; Miscellaneous
 
+(declaim (inline count-mapped-elements))
+(defun count-mapped-elements (map-fn what)
+  (let ((counter 0))
+    (declare (type (and fixnum unsigned-byte) counter))
+    (funcall
+     map-fn
+     (lambda (element)
+       (declare (ignore element))
+       (incf counter))
+     what)
+    counter))
+
+(defun buffer-number-of-inputs (buffer)
+  (declare (buffer buffer))
+  (length (buffer-writers buffer)))
+
+(defun buffer-number-of-outputs (buffer)
+  (declare (buffer buffer))
+  (length (buffer-readers buffer)))
+
+(defun buffer-number-of-loads (buffer)
+  (declare (buffer buffer))
+  (count-mapped-elements #'map-buffer-load-instructions buffer))
+
+(defun buffer-number-of-stores (buffer)
+  (declare (buffer buffer))
+  (count-mapped-elements #'map-buffer-store-instructions buffer))
+
+(defun kernel-number-of-inputs (kernel)
+  (declare (kernel kernel))
+  (length (kernel-sources kernel)))
+
+(defun kernel-number-of-outputs (kernel)
+  (declare (kernel kernel))
+  (length (kernel-targets kernel)))
+
 (defun kernel-number-of-loads (kernel)
   (declare (kernel kernel))
-  (let ((counter 0))
-    (declare (fixnum counter))
-    (map-kernel-load-instructions
-     (lambda (_) (declare (ignore _))
-       (incf counter))
-     kernel)
-    counter))
+  (count-mapped-elements #'map-kernel-load-instructions kernel))
 
 (defun kernel-number-of-stores (kernel)
   (declare (kernel kernel))
-  (let ((counter 0))
-    (declare (fixnum counter))
-    (map-kernel-store-instructions
-     (lambda (_) (declare (ignore _))
-       (incf counter))
-     kernel)
-    counter))
+  (count-mapped-elements #'map-kernel-store-instructions kernel))
 
 (defun kernel-highest-instruction-number (kernel)
   (declare (kernel kernel))
@@ -392,84 +446,21 @@
      kernel)
     (nreverse buffers)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; IR Modifications
+
 (defun delete-kernel (kernel)
-  ;; Only kernels with zero store instructions can be deleted without
-  ;; changing semantics.
-  (assert (null (kernel-targets kernel)))
-  (let ((obsolete-buffers '()))
-    (map-kernel-inputs
-     (lambda (buffer)
-       (let ((new-readers (remove kernel (buffer-readers buffer) :key #'car)))
-         (setf (buffer-readers buffer)
-               new-readers)
-         ;; A buffer that is never read from is obsolete.
-         (when (null new-readers)
-           (pushnew buffer obsolete-buffers))))
-     kernel)
-    (mapc #'delete-buffer obsolete-buffers)
-    (values)))
-
-(defun delete-buffer (buffer)
-  ;; Only buffers with zero readers can be deleted without changing
-  ;; semantics.
-  (assert (null (buffer-readers buffer)))
-  (setf (buffer-storage buffer) nil)
-  (let ((obsolete-kernels '()))
-    (map-buffer-inputs
-     (lambda (kernel)
-       (let ((targets (remove buffer (kernel-targets kernel) :key #'car)))
-         (setf (kernel-targets kernel)
-               targets)
-         ;; A kernel with zero store instructions is obsolete.
-         (when (null targets)
-           (pushnew kernel obsolete-kernels))))
-     buffer)
-    (mapc #'delete-kernel obsolete-kernels)
-    (values)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;
-;;; Assigning Instruction Numbers
-
-(defun assign-instruction-numbers (kernel)
-  ;; Step 1 - set all instruction numbers to -1.
-  (labels ((clear-instruction-numbers (instruction)
-             (unless (= -1 (instruction-number instruction))
-               (map-instruction-inputs #'clear-instruction-numbers instruction)
-               (setf (instruction-number instruction) -1))))
-    (map-kernel-store-instructions #'clear-instruction-numbers kernel))
-  ;; Step 2 - assign new instruction numbers.
-  (let ((n -1))
-    (labels ((assign-instruction-numbers (instruction)
-               (when (= -1 (instruction-number instruction))
-                 (setf (instruction-number instruction) -2)
-                 (map-instruction-inputs #'assign-instruction-numbers instruction)
-                 (setf (instruction-number instruction) (incf n)))))
-      (map-kernel-store-instructions #'assign-instruction-numbers kernel))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;
-;;; IR Normalization
-;;;
-;;; The IR consists of buffers of arbitrary shape, and of kernels that
-;;; reference some buffers via arbitrary affine linear transformations.  A
-;;; downside of this representation is that it includes a useless degree of
-;;; freedom.  We can reshape each buffer with another affine-linear
-;;; transformation, as long as we also update the transformations of all
-;;; references to the buffer.
-;;;
-;;; The purpose of this IR transformation is to get rid of this useless
-;;; degree of freedom.  To do so, we reshape each buffer such that all
-;;; ranges of its shape have a start of zero and a step size of one.  Of
-;;; course, we also update all references to each buffer, such that the
-;;; semantics is preserved.
-
-(defun normalize-ir (root-buffers)
-  (map-buffers #'normalize-buffer root-buffers)
-  (map-kernels #'normalize-kernel root-buffers))
-
-(defun normalize-buffer (buffer)
-  (transform-buffer buffer (collapsing-transformation (buffer-shape buffer))))
-
-(defun normalize-kernel (kernel)
-  (transform-kernel kernel (collapsing-transformation (kernel-iteration-space kernel))))
+  (map-kernel-inputs
+   (lambda (buffer)
+     (setf (buffer-readers buffer)
+           (remove kernel (buffer-readers buffer) :key #'car)))
+   kernel)
+  (map-kernel-outputs
+   (lambda (buffer)
+     (setf (buffer-writers buffer)
+           (remove kernel (buffer-writers buffer) :key #'car)))
+   kernel)
+  (setf (kernel-instruction-vector kernel)
+        #())
+  (values))

@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.graphviz)
 
@@ -12,7 +12,8 @@
           (*print-right-margin* 60)
           (*print-pretty* t)
           (*print-escape* nil)
-          (*print-readably* nil))
+          (*print-readably* nil)
+          (*package* (find-package '#:petalisp.api)))
       (write-to-string x))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

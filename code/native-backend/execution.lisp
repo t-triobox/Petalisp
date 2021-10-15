@@ -1,9 +1,10 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.native-backend)
 
-(defmethod compute-immediates
-    ((lazy-arrays list) (native-backend native-backend))
+(defmethod backend-compute
+    ((native-backend native-backend)
+     (lazy-arrays list))
   (let ((memory-pool (memory-pool native-backend))
         (worker-pool (worker-pool native-backend)))
     (petalisp.scheduler:schedule-on-workers
@@ -14,7 +15,7 @@
        (loop for task in tasks do
          (let* ((kernel (petalisp.scheduler:task-kernel task))
                 (workers (petalisp.scheduler:task-workers task))
-                (fn (compile-kernel kernel native-backend)))
+                (fn (compile-kernel-on-backend kernel native-backend)))
            (worker-pool-enqueue
             (lambda (worker-id)
               (invoke-kernel kernel fn workers worker-id))
@@ -35,89 +36,61 @@
        (let ((storage (buffer-storage buffer)))
          (unless (null storage)
            (setf (buffer-storage buffer) nil)
-           (when (buffer-reusablep buffer)
+           (when (petalisp.ir:interior-buffer-p buffer)
              (memory-pool-free memory-pool storage))))))))
 
 ;; Cleanup.
-(defmethod compute-immediates :after
-    ((lazy-arrays list) (native-backend native-backend))
+(defmethod backend-compute :after
+    ((native-backend native-backend)
+     (lazy-arrays list))
   (memory-pool-reset (memory-pool native-backend)))
 
-(defun kernel-ranges (kernel n-workers normalized-worker-id)
-  (assert (< normalized-worker-id n-workers))
-  (let* ((iteration-space (kernel-iteration-space kernel))
-         (rank (shape-rank iteration-space))
-         (vector (make-array (* 3 rank))))
-    (loop for index below rank
-          for range in (shape-ranges iteration-space) do
-            (multiple-value-bind (start step end)
-                (range-start-step-end range)
-              (setf (svref vector (+ (* 3 index) 0)) start)
-              (setf (svref vector (+ (* 3 index) 1)) step)
-              (setf (svref vector (+ (* 3 index) 2)) end)))
-    ;; So far, we use a simple outer loop parallelization scheme.  To do
-    ;; that, we first have to check whether there is an outer loop.
-    (if (zerop rank)
-        ;; If there is no outer loop, we execute the kernel on one
-        ;; worker only.
-        (when (zerop normalized-worker-id)
-          vector)
-        (symbol-macrolet ((start (svref vector 0))
-                          (step (svref vector 1))
-                          (end (svref vector 2)))
-          (let ((outer-loop-size (/ (1+ (- end start)) step)))
-            (multiple-value-bind (chunk-size remainder)
-                (floor outer-loop-size n-workers)
-              (if (zerop chunk-size)
-                  (when (< normalized-worker-id remainder)
-                    (setf start (+ start (* step normalized-worker-id)))
-                    (setf end start)
-                    vector)
-                  (let* ((new-start (+ start
-                                       (* normalized-worker-id chunk-size step)
-                                       (* (min remainder normalized-worker-id) step)))
-                         (new-end (+ new-start
-                                     (* (1- chunk-size) step)
-                                     (if (< normalized-worker-id remainder) step 0))))
-                    (setf start new-start)
-                    (setf end new-end)
-                    vector))))))))
-
-(defun invalid-kernel-function (&rest args)
-  (declare (ignore args))
-  (error "Reference to uninitialized kernel function."))
-
-(defun kernel-functions (kernel size)
-  (let ((vector (make-array size :initial-element #'invalid-kernel-function))
-        (current 0))
-    (flet ((register-function (function)
-             ;; If FUNCTION is a symbol, it is part of the kernel blueprint
-             ;; and we don't need to pass it explicitly.
-             (unless (symbolp function)
-               (cond ((= current size)
-                      (return-from kernel-functions
-                        (kernel-functions kernel (* 5 size))))
-                     (t
-                      (setf (svref vector current) function)
-                      (incf current))))))
-      (map-instructions
-       (lambda (instruction)
-         (when (call-instruction-p instruction)
-           (register-function (call-instruction-operator instruction))))
-       kernel)
-      vector)))
+(defun compile-kernel-on-backend (kernel backend)
+  (let ((blueprint (kernel-blueprint kernel)))
+    (petalisp.utilities:with-hash-table-memoization (blueprint)
+        (compile-cache backend)
+      (compile nil (petalisp.ir:translate-blueprint blueprint)))))
 
 (defun invoke-kernel (kernel kernel-fn workers worker-id)
   (when (range-contains workers worker-id)
     (let* ((base-id (range-start workers))
-           (ranges (kernel-ranges kernel (range-size workers) (- worker-id base-id)))
-           (arrays (map 'vector #'buffer-storage (kernel-buffers kernel)))
-           (functions (kernel-functions kernel 8)))
-      (when ranges
-        (funcall kernel-fn ranges arrays functions)))))
+           (iteration-space
+             (worker-iteration-space kernel (range-size workers) (- worker-id base-id))))
+      (unless (not iteration-space)
+        (funcall kernel-fn kernel iteration-space)))))
 
-(defun compile-kernel (kernel backend)
-  (let ((blueprint (kernel-blueprint kernel)))
-    (petalisp.utilities:with-hash-table-memoization (blueprint)
-        (compile-cache backend)
-      (compile nil (petalisp.blueprint-compiler:translate-blueprint blueprint)))))
+(defun worker-iteration-space (kernel n-workers normalized-worker-id)
+  (assert (< normalized-worker-id n-workers))
+  (let* ((iteration-space (kernel-iteration-space kernel))
+         (ranges (shape-ranges iteration-space)))
+    (flet ((use-serial-execution ()
+             (return-from worker-iteration-space
+               (if (zerop normalized-worker-id)
+                   iteration-space
+                   nil))))
+      ;; If the kernel has rank zero, we execute it only on worker zero.
+      (when (null ranges)
+        (use-serial-execution))
+      ;; If the kernel's outer loop is too small, we execute it only on
+      ;; worker zero.
+      (when (< (range-size (first ranges)) n-workers)
+        (use-serial-execution))
+      ;; We use a simple outer loop parallelization scheme for now.
+      (make-shape
+       (list*
+        (let* ((range (first ranges))
+               (start (range-start range))
+               (step (range-step range))
+               (outer-loop-size (range-size range)))
+          (multiple-value-bind (chunk-size remainder)
+              (floor outer-loop-size n-workers)
+            (let* ((new-start
+                     (+ start
+                        (* normalized-worker-id chunk-size step)
+                        (* (min remainder normalized-worker-id) step)))
+                   (new-end
+                     (+ new-start
+                        (* chunk-size step)
+                        (if (< normalized-worker-id remainder) step 0))))
+              (range new-start new-end step))))
+        (rest ranges))))))

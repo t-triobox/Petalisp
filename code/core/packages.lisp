@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
@@ -22,6 +22,10 @@
    ;; Ranges
    #:range
    #:rangep
+   #:empty-range
+   #:empty-range-p
+   #:non-empty-range
+   #:non-empty-range-p
    #:size-one-range-p
    #:split-range
    #:map-range
@@ -30,22 +34,21 @@
    #:range-intersection
    #:range-intersectionp
    #:range-difference-list
-   #:range-start-step-end
    #:range-start
    #:range-step
+   #:range-last
    #:range-end
    #:range-size
    #:subrangep
    #:fuse-ranges
 
    ;; Shapes
-   #:~
-   #:~l
-   #:~s
-   #:~r
    #:shape
    #:shapep
+   #:make-shape
+   #:empty-shape-p
    #:shape-rank
+   #:shape-range
    #:shape-ranges
    #:shape-dimensions
    #:shape-size
@@ -57,16 +60,26 @@
    #:shape-contains
    #:shrink-shape
    #:enlarge-shape
-   #:subdivide
+   #:subdivide-arrays
+   #:subdivide-shapes
    #:subshapep
    #:fuse-shapes
+   #:shape-table
+   #:shape-table-p
+   #:make-shape-table
+   #:shape-table-value
+   #:remove-shape-table-entry
+   #:clear-shape-table
+   #:array-shape
+   #:shape-designator-shape
 
    ;; Transformations
-   #:τ
    #:transformation
    #:transformationp
-   #:transform
+   #:transform-sequence
+   #:transform-shape
    #:transform-axis
+   #:transform-lazy-array
    #:identity-transformation-p
    #:transformation-input-rank
    #:transformation-output-rank
@@ -88,83 +101,88 @@
    #:map-transformation-outputs
 
    ;; Lazy Arrays
-   #:lazy-array-p
-   #:empty-array-p
-   #:immediatep
-   #:reusablep
    #:lazy-array
-   #:parameter
-   #:optional-parameter
-   #:optional-parameter-value
-   #:replace-lazy-array
-   #:total-size
-   #:element-type
-   #:element-ntype
-   #:rank
-   #:input
-   #:inputs
-   #:value-n
-   #:number-of-values
-   #:operator
-   #:storage
-   #:refcount
-   #:depth
+   #:lazy-array-p
+   #:lazy-array-shape
+   #:lazy-array-ntype
+   #:lazy-array-depth
+   #:lazy-array-refcount
+   #:lazy-array-delayed-action
+   #:lazy-array-element-type
+   #:lazy-array-rank
+   #:lazy-array-size
+   #:lazy-array-ranges
+   #:lazy-array-inputs
    #:lazy-array
    #:lazy-map
-   #:single-value-lazy-map
-   #:multiple-value-lazy-map
+   #:lazy-multiple-value-map
    #:lazy-reshape
+   #:lazy-ref
    #:lazy-fuse
-   #:immediate
-   #:non-immediate
-   #:empty-array
-   #:empty-arrays
-   #:non-empty-array
-   #:non-empty-immediate
-   #:non-empty-non-immediate
-   #:array-immediate
-   #:range-immediate
+   #:lazy-collapse
+   #:make-unknown
+   #:lazy-thunks-and-unknowns
+   #:force-lazy-thunk
+   #:empty-lazy-array
+   #:empty-lazy-arrays
    #:move-axis-to-front
-   #:empty-array
-   #:make-array-immediate
-   #:make-range-immediate
-   #:indices
-   #:broadcast
-   #:broadcast-arrays
-   #:broadcast-list-of-arrays
-   #:copy-arrays
-   #:substitute-arrays
+   #:lazy-array-from-array
+   #:lazy-array-from-scalar
+   #:lazy-array-from-range
+   #:copy-lazy-arrays
+   #:substitute-lazy-arrays
+   #:substitute-lazy-array
+   #:substitute-delayed-action
 
-   ;; Machine Model
-   #:memory
-   #:memory-name
-   #:memory-parent
-   #:memory-children
-   #:memory-processors
-   #:memory-size
-   #:memory-granularity
-   #:memory-latency
-   #:memory-bandwidth
-   #:memory-parent-bandwidth
-   #:processor
-   #:processor-name
-   #:processor-memory
-   #:machine
-   #:machine-name
-   #:machine-processors
-   #:machine-main-memory
-   #:host-machine
+   ;; Delayed Actions
+   #:delayed-action
+   #:delayed-action-p
+   #:delayed-action-inputs
+   #:delayed-map
+   #:delayed-map-p
+   #:delayed-map-operator
+   #:delayed-map-inputs
+   #:delayed-map-number-of-values
+   #:delayed-multiple-value-map
+   #:delayed-multiple-value-map-p
+   #:delayed-multiple-value-map-operator
+   #:delayed-multiple-value-map-inputs
+   #:delayed-multiple-value-map-ntypes
+   #:delayed-nth-value
+   #:delayed-nth-value-p
+   #:delayed-nth-value-number
+   #:delayed-nth-value-input
+   #:delayed-reshape
+   #:delayed-reshape-p
+   #:delayed-reshape-transformation
+   #:delayed-reshape-input
+   #:delayed-fuse
+   #:delayed-fuse-p
+   #:delayed-fuse-inputs
+   #:delayed-range
+   #:delayed-range-p
+   #:delayed-array
+   #:delayed-array-p
+   #:delayed-array-storage
+   #:delayed-thunk
+   #:delayed-thunk-p
+   #:delayed-thunk-thunk
+   #:delayed-unknown
+   #:delayed-unknown-p
+   #:delayed-nop
+   #:delayed-nop-p
 
    ;; Backend
    #:*backend*
-   #:backend-machine
-   #:compute-on-backend
-   #:schedule-on-backend
-   #:compile-network-on-backend
-   #:compute-immediates
-   #:lisp-datum-from-immediate
+   #:with-backend
    #:backend
-   #:asynchronous-backend
+   #:backend-compute
+   #:backend-schedule
+   #:backend-wait
    #:delete-backend
+   #:make-reference-backend
    #:compute
-   #:schedule))
+   #:compute-list-of-arrays
+   #:schedule
+   #:schedule-list-of-arrays
+   #:wait))

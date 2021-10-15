@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
@@ -26,23 +26,23 @@
    ;; defalias.lisp
    #:defalias
 
-   ;; deque.lisp
-   #:deque
-   #:dequep
-   #:make-deque
-   #:deque-push
-   #:deque-pop
-   #:deque-steal
+   ;; queue.lisp
+   #:queue
+   #:queuep
+   #:make-queue
+   #:queue-enqueue
+   #:queue-dequeue
+
+   ;; wsdeque.lisp
+   #:wsdeque
+   #:wsdequep
+   #:make-wsdeque
+   #:wsdeque-push
+   #:wsdeque-pop
+   #:wsdeque-steal
 
    ;; extended-euclid.lisp
    #:extended-euclid
-
-   ;; identical.lisp
-   #:float-bits
-   #:+short-float-bits+
-   #:+single-float-bits+
-   #:+double-float-bits+
-   #:+long-float-bits+
 
    ;; identical.lisp
    #:identical

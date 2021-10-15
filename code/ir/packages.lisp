@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
@@ -29,6 +29,9 @@
 
    ;; Predicates
    #:bufferp
+   #:leaf-buffer-p
+   #:root-buffer-p
+   #:interior-buffer-p
    #:kernelp
    #:instructionp
    #:call-instruction-p
@@ -58,18 +61,24 @@
 
    ;; Accessors
    #:buffer-shape
+   #:buffer-size
    #:buffer-ntype
-   #:buffer-readers
-   #:buffer-writers
-   #:buffer-reusablep
    #:buffer-storage
+   #:buffer-data
+   #:buffer-number-of-inputs
+   #:buffer-number-of-outputs
+   #:buffer-number-of-loads
+   #:buffer-number-of-stores
    #:kernel-iteration-space
    #:kernel-blueprint
    #:kernel-buffers
-   #:kernel-highest-instruction-number
+   #:kernel-instruction-vector
+   #:kernel-number-of-inputs
+   #:kernel-number-of-outputs
    #:kernel-number-of-loads
    #:kernel-number-of-stores
    #:kernel-cost
+   #:kernel-data
    #:instruction-number
    #:instruction-inputs
    #:instruction-transformation
@@ -77,6 +86,29 @@
    #:store-instruction-buffer
    #:load-instruction-buffer
 
+   ;; Devices, Workers, and Memory
+   #:device
+   #:device-name
+   #:device-memory
+   #:device-workers
+   #:host-device
+   #:worker
+   #:worker-name
+   #:worker-memory
+   #:memory
+   #:memory-name
+   #:memory-parent
+   #:memory-children
+   #:memory-workers
+   #:memory-size
+   #:memory-granularity
+   #:memory-latency
+   #:memory-bandwidth
+   #:memory-parent-bandwidth
+
    ;; Miscellaneous
-   #:assign-instruction-numbers
-   #:parse-kernel-blueprint))
+   #:make-ir-backend
+   #:check-ir
+   #:interpret-kernel
+   #:compile-kernel
+   #:translate-blueprint))

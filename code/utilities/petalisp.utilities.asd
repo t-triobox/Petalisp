@@ -5,6 +5,7 @@
   :depends-on
   ("alexandria"
    "atomics"
+   "bordeaux-threads"
    "trivia"
    "trivial-garbage")
 
@@ -13,12 +14,15 @@
   ((:file "packages")
    (:file "documentation")
    (:file "defalias")
-   (:file "deque")
+   (:file "queue")
+   (:file "circular-array")
+   #+(or)
+   (:file "wsdeque-sbcl" :if-feature :sbcl)
+   (:file "wsdeque")
    (:file "bitfield")
    (:file "identical")
    (:file "memoization")
    (:file "extended-euclid")
-   (:file "float-bits")
    (:file "prime-factors")
    (:file "weak-set")
    (:file "with-collectors")

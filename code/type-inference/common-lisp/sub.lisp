@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.type-inference)
 
@@ -116,4 +116,4 @@
 
 (define-differentiator 1- (number) index
   (declare (ignore number))
-  (wrap -1))
+  (wrap 1))

@@ -9,73 +9,75 @@
 (in-package #:petalisp.examples.getting-started)
 
 (defun present (&rest arrays)
-  (format t "~{~& => ~A~}"
-          (multiple-value-list
-           (apply #'compute arrays))))
+  (format t "~{~& => ~A~}" (compute-list-of-arrays arrays)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Petalisp Basics
 
 (present
- (reshape 0 (~))) ; the empty space
+ (lazy-reshape 0 (~))) ; the empty space
 
 (defun zeros (shape)
-  (reshape 0 shape))
+  (lazy-reshape 0 shape))
 
 (present
- (zeros (~ 0 9))) ; ten zeros
+ (zeros (~ 10))) ; ten zeros
 
 (present
- (indices (zeros (~ 0 9)))) ; the numbers from 0 to 9 (inclusive)
+ (lazy-array-indices (zeros (~ 10)))) ; the numbers from 0 to 9 (inclusive)
 
 (present
- (reshape #2a((1 2 3 4) (5 6 7 8)) (~ 0 1 ~ 1 2))) ; selecting values
+ (lazy-reshape #2a((1 2 3 4) (5 6 7 8)) (~ 0 2 ~ 1 3))) ; selecting values
 
 (present
- (reshape #2a((1 2 3 4) (5 6 7 8))
-          (τ (i j) (j i)))) ; transforming
+ (lazy-reshape #2a((1 2 3 4) (5 6 7 8))
+               (transform i j to j i))) ; transforming
 
 ;; arrays can be merged with fuse
 
-(present (fuse (reshape 5 (~ 0 2))
-               (reshape 1 (~ 3 5))))
+(present
+ (lazy-fuse
+  (lazy-reshape 5 (~ 0 3))
+  (lazy-reshape 1 (~ 3 6))))
 
 ;; arrays can be overwritten with fuse*
 
 (present
- (fuse* (zeros (~ 0 9 ~ 0 9))
-        (reshape 1 (~ 2 7 ~ 2 7))))
+ (lazy-overwrite
+  (zeros (~ 10 ~ 10))
+  (lazy-reshape 1 (~ 2 8 ~ 2 8))))
 
 ;; lazy arrays permit beautiful functional abstractions
 
 (defun chessboard (h w)
-  (fuse (reshape 0 (~ 0 2 h ~ 0 2 w))
-        (reshape 0 (~ 1 2 h ~ 1 2 w))
-        (reshape 1 (~ 0 2 h ~ 1 2 w))
-        (reshape 1 (~ 1 2 h ~ 0 2 w))))
+  (lazy-fuse
+   (lazy-reshape 0 (~ 0 h 2 ~ 0 w 2))
+   (lazy-reshape 0 (~ 1 h 2 ~ 1 w 2))
+   (lazy-reshape 1 (~ 0 h 2 ~ 1 w 2))
+   (lazy-reshape 1 (~ 1 h 2 ~ 0 w 2))))
 
 (present
  (chessboard 8 8))
 
-;; α applies a Lisp function element-wise
+;; lazy applies a Lisp function element-wise
 
 (present
- (α #'+ #(1 2 3) #(1 1 1)))
+ (lazy #'+ #(1 2 3) #(1 1 1)))
 
 (present
- (α #'* 2 3)) ; scalar are treated as rank zero arrays
+ (lazy #'* 2 3)) ; scalar are treated as rank zero arrays
 
 (present
- (α #'* 2 #(1 2 3))) ; α broadcasts automatically
+ (lazy #'* 2 #(1 2 3))) ; lazy broadcasts automatically
 
-;; β reduces array elements
-
-(present
- (β #'+ #(1 2 3 4 5 6 7 8 9 10)))
+;; lazy-reduce reduces array elements
 
 (present
- (β #'+
+ (lazy-reduce #'+ #(1 2 3 4 5 6 7 8 9 10)))
+
+(present
+ (lazy-reduce #'+
     ;; only the axis zero is reduced
     #2A((1 2 3) (4 5 6))))
 
@@ -84,10 +86,10 @@
 ;;;  Matrix multiplication
 
 (defun matmul (A B)
-  (β #'+
-     (α #'*
-        (reshape A (τ (m n) (n m 0)))
-        (reshape B (τ (n k) (n 0 k))))))
+  (lazy-reduce #'+
+     (lazy #'*
+        (lazy-reshape A (transform m n to n m 0))
+        (lazy-reshape B (transform n k to n 0 k)))))
 
 (defparameter MI #2a((1.0 0.0)
                      (0.0 1.0)))
@@ -102,41 +104,35 @@
 (present (matmul MA MA))
 
 (present
- (matmul (reshape 3.0 (~ 0 3 ~ 0 7))
-         (reshape 2.0 (~ 0 7 ~ 0 3))))
+ (matmul (lazy-reshape 3.0 (~ 4 ~ 8))
+         (lazy-reshape 2.0 (~ 8 ~ 4))))
 
-(defparameter M (reshape #(1 2 3 4 5 6) (~ 0 5 ~ 0 5)))
+(defparameter M (lazy-reshape #(1 2 3 4 5 6) (~ 6 ~ 6)))
 
 (present M)
 
 (present
- (matmul M (reshape M (τ (m n) (n m)))))
+ (matmul M (lazy-reshape M (transform m n to n m))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;;  Jacobi's Method
 
-(defun interior (array)
-  (flet ((range-interior (range)
-           (multiple-value-bind (start step end)
-               (range-start-step-end range)
-             (range (+ start step) step (- end step)))))
-    (~l (mapcar #'range-interior (shape-ranges (shape array))))))
-
 (defun jacobi-2d (grid)
-  (let ((interior (interior grid)))
-    (fuse*
+  (let ((interior (lazy-array-interior grid)))
+    (lazy-overwrite
      grid
-     (α #'* 1/4
-        (α #'+
-           (reshape grid (τ (i j) ((1+ i) j)) interior)
-           (reshape grid (τ (i j) ((1- i) j)) interior)
-           (reshape grid (τ (i j) (i (1+ j))) interior)
-           (reshape grid (τ (i j) (i (1- j))) interior))))))
+     (lazy #'* 1/4
+           (lazy #'+
+                 (lazy-reshape grid (transform i j to (1+ i) j) interior)
+                 (lazy-reshape grid (transform i j to (1- i) j) interior)
+                 (lazy-reshape grid (transform i j to i (1+ j)) interior)
+                 (lazy-reshape grid (transform i j to i (1- j)) interior))))))
 
 (defparameter domain
-  (fuse* (reshape 1.0 (~ 0 9 ~ 0 9))
-         (reshape 0.0 (~ 1 8 ~ 1 8))))
+  (lazy-overwrite
+   (lazy-reshape 1.0 (~ 10 ~ 10))
+   (lazy-reshape 0.0 (~ 1 9 ~ 1 9))))
 
 (present domain)
 

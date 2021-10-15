@@ -5,6 +5,10 @@
    #:common-lisp
    #:petalisp)
   (:export
+   #:coerce-to-matrix
+   #:coerce-to-scalar
+   #:matrix
+   #:square-matrix
    #:matrix
    #:square-matrix
    #:zeros
@@ -25,27 +29,32 @@
 
 (defun coerce-to-matrix (x)
   (setf x (lazy-array x))
-  (trivia:ematch (shape x)
+  (trivia:ematch (lazy-array-shape x)
     ((~)
-     (reshape x (~ 1 ~ 1)))
+     (lazy-reshape x (~ 1 ~ 1)))
     ((~l (list range))
-     (reshape x (~ 1 (range-size range) ~ 1)))
+     (lazy-reshape x (~ (range-size range) ~ 1)))
     ((~l (list range-1 range-2))
-     (reshape x (~ 1 (range-size range-1) ~ 1 (range-size range-2))))))
+     (lazy-reshape x (~ (range-size range-1) ~ (range-size range-2))))))
 
 (defun coerce-to-scalar (x)
   (setf x (lazy-array x))
-  (trivia:ematch (shape x)
+  (trivia:ematch (lazy-array-shape x)
     ((~) x)
-    ((~ i)
-     (reshape x (make-transformation :input-mask (vector i) :output-rank 0)))
-    ((~ i ~ j)
-     (reshape x (make-transformation :input-mask (vector i j) :output-rank 0)))))
+    ((~ i 1+i)
+     (unless (= (1+ i) 1+i)
+       (trivia.fail:fail))
+     (lazy-reshape x (make-transformation :input-mask (vector i) :output-rank 0)))
+    ((~ i 1+i ~ j 1+j)
+     (unless (and (= (1+ i) 1+i)
+                  (= (1+ j) 1+j))
+       (trivia.fail:fail))
+     (lazy-reshape x (make-transformation :input-mask (vector i j) :output-rank 0)))))
 
 (trivia:defpattern matrix (m n)
   (alexandria:with-gensyms (it)
     `(trivia:guard1 ,it (lazy-array-p ,it)
-                    (shape ,it) (~ 1 ,m ~ 1 ,n))))
+                    (lazy-array-shape ,it) (~ ,m ~ ,n))))
 
 (trivia:defpattern square-matrix (m)
   (alexandria:with-gensyms (g)
@@ -70,9 +79,7 @@
 ;;; Linear Algebra Subroutines
 
 (defun zeros (m &optional (n m))
-  (assert (plusp m))
-  (assert (plusp n))
-  (reshape 0 (~ 1 m ~ 1 n)))
+  (lazy-reshape 0 (~ m ~ n)))
 
 (declaim (inline δ))
 (defun δ (i j)
@@ -80,15 +87,15 @@
   (if (= i j) 1 0))
 
 (defun eye (m &optional (n m))
-  (assert (plusp m))
-  (assert (plusp n))
-  (let ((shape (~ 1 m ~ 1 n)))
-    (α #'δ (indices shape 0) (indices shape 1))))
+  (let ((shape (~ m ~ n)))
+    (lazy #'δ
+          (lazy-shape-indices shape 0)
+          (lazy-shape-indices shape 1))))
 
 (defun transpose (x)
-  (reshape
+  (lazy-reshape
    (coerce-to-matrix x)
-   (τ (m n) (n m))))
+   (transform m n to n m)))
 
 (defun dot (x y)
   (coerce-to-scalar
@@ -97,38 +104,32 @@
     (coerce-to-matrix y))))
 
 (defun norm (x)
-  (α #'sqrt (dot x x)))
-
-(defun sum (x &optional axis)
-  (β* #'+ 0 x axis))
-
-(defun product (x &optional axis)
-  (β* #'* 1 x axis))
+  (lazy #'sqrt (dot x x)))
 
 (defun asum (x)
   (coerce-to-scalar
-   (β #'+ (α #'abs (coerce-to-matrix x)))))
+   (lazy-reduce #'+ (lazy #'abs (coerce-to-matrix x)))))
 
 (defun max* (x)
-  (β (lambda (lv li rv ri)
-       (if (> lv rv)
-           (values lv li)
-           (values rv ri)))
-     x (indices x)))
+  (lazy-reduce
+   (lambda (lv li rv ri)
+     (if (> lv rv)
+         (values lv li)
+         (values rv ri)))
+     x (lazy-array-indices x)))
 
 (defun matmul (A B)
-  (β #'+
-     (α #'*
-        (reshape (coerce-to-matrix A) (τ (m n) (n m 1)))
-        (reshape (coerce-to-matrix B) (τ (n k) (n 1 k))))))
+  (lazy-reduce #'+
+               (lazy #'*
+                     (lazy-reshape (coerce-to-matrix A) (transform m n to n m 0))
+                     (lazy-reshape (coerce-to-matrix B) (transform n k to n 0 k)))))
 
 (defun pivot-and-value (A d)
   (setf A (coerce-to-matrix A))
   (trivia:ematch A
     ((square-matrix m)
-     (assert (<= 1 d m))
      (multiple-value-bind (v p)
-         (max* (α #'abs (reshape A (~ d m ~ d))))
+         (max* (lazy #'abs (lazy-reshape A (~ d m ~ d (1+ d)))))
        (let ((p (coerce-to-scalar p))
              (v (coerce-to-scalar v)))
          ;(schedule A p v)
@@ -137,16 +138,17 @@
 (defun swap-rows (A i j)
   (setf A (coerce-to-matrix A))
   (trivia:ematch A
-    ((matrix m n)
-     (assert (<= 1 i m))
-     (assert (<= 1 j m))
+    ((square-matrix m)
+     (assert (< -1 i m))
+     (assert (< -1 j m))
      (if (= i j)
          A
-         (let ((si (~ i ~ 1 n))
-               (sj (~ j ~ 1 n)))
-           (fuse* A
-                  (reshape A sj si)
-                  (reshape A si sj)))))))
+         (let ((si (~ i (1+ i) ~ m))
+               (sj (~ j (1+ j) ~ m)))
+           (lazy-overwrite
+            A
+            (lazy-reshape A sj si)
+            (lazy-reshape A si sj)))))))
 
 (defun lu (A)
   (setf A (coerce-to-matrix A))
@@ -154,7 +156,7 @@
     ((square-matrix m)
      (labels
          ((rec (d P L U)
-            (if (= d m)
+            (if (= (1+ d) m)
                 (values (transpose P) L U)
                 (multiple-value-bind (pivot value)
                     (pivot-and-value U d)
@@ -162,12 +164,17 @@
                   (let* ((P (swap-rows P d pivot))
                          (L (swap-rows L d pivot))
                          (U (swap-rows U d pivot))
-                         (S (α #'/ (reshape U (~ (1+ d) m ~ d))
+                         (S (lazy #'/ (lazy-reshape U (~ (1+ d) m ~ d (1+ d)))
                                (coerce-to-matrix value))))
                     (rec (1+ d)
                          P
-                         (fuse* L S (reshape 1 (~ d ~ d)))
-                         (fuse* U
-                                (α #'- (reshape U (~ (1+ d) m ~ d m))
-                                   (α #'* S (reshape U (~ d ~ d m)))))))))))
-       (rec 1 (eye m) (zeros m) A)))))
+                         (lazy-overwrite
+                          L
+                          S
+                          (lazy-reshape 1 (~ d (1+ d) ~ d (1+ d))))
+                         (lazy-overwrite
+                          U
+                          (lazy #'-
+                                (lazy-reshape U (~ (1+ d) m ~ d m))
+                                (lazy #'* S (lazy-reshape U (~ d (1+ d) ~ d m)))))))))))
+       (rec 0 (eye m) (zeros m) A)))))

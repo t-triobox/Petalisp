@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.test-suite)
 
@@ -113,6 +113,7 @@
   (or (find-class symbol nil)
       (boundp symbol)
       (fboundp symbol)
+      (fboundp `(setf ,symbol))
       (macro-function symbol)
       (special-operator-p symbol)
       (type-specifier-p symbol)))

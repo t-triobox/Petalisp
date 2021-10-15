@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
@@ -17,6 +17,7 @@
    #:radix
    #:character-code
    #:arity
+   #:argument-index
    #:byte-specifier
    #:complex-short-float
    #:complex-single-float
@@ -27,8 +28,10 @@
    #:type-specifier
 
    ;; Ntype manipulation.
+   #:*ntypes*
    #:ntype
    #:ntype-size
+   #:ntype-id
    #:ntype=
    #:type-specifier
    #:ntype-of
@@ -42,7 +45,7 @@
    #:eql-ntype-p
    #:ntype-union
    #:ntype-subtypep
-   #:ntype-subtypepc1
+   #:ntype-subtypepc2
    #:list-ntypes
 
    ;; Type inference.

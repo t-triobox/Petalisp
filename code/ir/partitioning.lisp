@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.ir)
 
@@ -37,7 +37,7 @@
                             ;; than the size of the kernel iteration space,
                             ;; we scale down the number of transferred
                             ;; bytes accordingly.
-                            (* (float (shape-size (buffer-shape buffer)))
+                            (* (float (buffer-size buffer))
                                (/ (float size))
                                (float
                                 (petalisp.type-inference:ntype-size

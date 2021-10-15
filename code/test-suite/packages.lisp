@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
@@ -7,8 +7,6 @@
    #:common-lisp
    #:petalisp.core
    #:petalisp.api
-   #:petalisp.reference-backend
-   #:petalisp.ir-backend
    #:petalisp.native-backend
    #:petalisp.examples.iterative-methods
    #:petalisp.examples.linear-algebra)

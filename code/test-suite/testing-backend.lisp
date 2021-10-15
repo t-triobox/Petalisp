@@ -1,47 +1,55 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.test-suite)
 
 (defclass testing-backend (backend)
   ((%reference-backend
     :reader reference-backend
-    :initform (petalisp.reference-backend:make-reference-backend))
-   (%ir-backend
-    :reader ir-backend
-    :initform (petalisp.ir-backend:make-ir-backend))
-   (%native-backend
-    :reader native-backend
+    :initform (make-reference-backend))
+   (%ir-backend-interpreted
+    :reader ir-backend-interpreted
+    :initform (make-ir-backend :mode :interpreted))
+   (%ir-backend-compiled
+    :reader ir-backend-compiled
+    :initform (make-ir-backend :mode :compiled))
+   (%multicore-backend
+    :reader multicore-backend
     :initform
-    (petalisp.native-backend:make-native-backend))))
+    (make-multicore-backend))))
 
 (defun make-testing-backend ()
   (make-instance 'testing-backend))
 
-(defmethod compute-immediates ((data-structures list) (testing-backend testing-backend))
+(defmethod backend-compute
+    ((testing-backend testing-backend)
+     (data-structures list))
   (with-accessors ((reference-backend reference-backend)
-                   (ir-backend ir-backend)
-                   (native-backend native-backend)) testing-backend
+                   (ir-backend-interpreted ir-backend-interpreted)
+                   (ir-backend-compiled ir-backend-compiled)
+                   (multicore-backend multicore-backend)) testing-backend
     (let ((reference-solutions
-            (compute-immediates data-structures reference-backend))
-          (ir-backend-solutions
-            (compute-immediates data-structures ir-backend))
-          (native-backend-solutions
-            (compute-immediates data-structures native-backend)))
-      (compare-solutions reference-solutions ir-backend-solutions)
-      (compare-solutions reference-solutions native-backend-solutions)
+            (backend-compute reference-backend data-structures))
+          (ir-backend-interpreted-solutions
+            (backend-compute ir-backend-interpreted data-structures))
+          (ir-backend-compiled-solutions
+            (backend-compute ir-backend-compiled data-structures))
+          (multicore-backend-solutions
+            (backend-compute multicore-backend data-structures)))
+      (compare-solutions reference-solutions ir-backend-interpreted-solutions)
+      (compare-solutions reference-solutions ir-backend-compiled-solutions)
+      (compare-solutions reference-solutions multicore-backend-solutions)
       reference-solutions)))
 
-(defun compare-solutions (solutions-1 solutions-2)
-  (loop for immediate-1 in solutions-1
-        for immediate-2 in solutions-2 do
-          (is (approximately-equal
-               (lisp-datum-from-immediate immediate-1)
-               (lisp-datum-from-immediate immediate-2)))))
+(defun compare-solutions (solutions1 solutions2)
+  (loop for solution1 in solutions1
+        for solution2 in solutions2 do
+          (is (approximately-equal solution1 solution2))))
 
 (defmethod delete-backend ((testing-backend testing-backend))
   (delete-backend (reference-backend testing-backend))
-  (delete-backend (ir-backend testing-backend))
-  (delete-backend (native-backend testing-backend))
+  (delete-backend (ir-backend-interpreted testing-backend))
+  (delete-backend (ir-backend-compiled testing-backend))
+  (delete-backend (multicore-backend testing-backend))
   (call-next-method))
 
 (defun call-with-testing-backend (thunk)

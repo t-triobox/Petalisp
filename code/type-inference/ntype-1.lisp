@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.type-inference)
 
@@ -25,14 +25,14 @@
                  &aux (size
                        (loop for (type size) in
                              `((nil 0)
-                               (short-float ,petalisp.utilities:+short-float-bits+)
-                               (single-float ,petalisp.utilities:+single-float-bits+)
-                               (double-float ,petalisp.utilities:+double-float-bits+)
-                               (long-float ,petalisp.utilities:+long-float-bits+)
-                               (complex-short-float ,(* 2 petalisp.utilities:+short-float-bits+))
-                               (complex-single-float ,(* 2 petalisp.utilities:+single-float-bits+))
-                               (complex-double-float ,(* 2 petalisp.utilities:+double-float-bits+))
-                               (complex-long-float ,(* 2 petalisp.utilities:+long-float-bits+))
+                               (short-float ,+short-float-bits+)
+                               (single-float ,+single-float-bits+)
+                               (double-float ,+double-float-bits+)
+                               (long-float ,+long-float-bits+)
+                               (complex-short-float ,(* 2 +short-float-bits+))
+                               (complex-single-float ,(* 2 +single-float-bits+))
+                               (complex-double-float ,(* 2 +double-float-bits+))
+                               (complex-long-float ,(* 2 +long-float-bits+))
                                ((signed-byte 8) 8)
                                ((signed-byte 16) 16)
                                ((signed-byte 32) 32)

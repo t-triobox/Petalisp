@@ -1,4 +1,4 @@
-;;;; © 2016-2020 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.core)
 
@@ -10,14 +10,33 @@
 ;;;
 ;;; Generic Functions
 
-(defgeneric compute-on-backend (lazy-arrays backend))
+;;; The generic function BACKEND-COMPUTE is invoked to force the evaluation
+;;; of some lazy arrays in a blocking fashion.  Backend developers can rely
+;;; on the fact that the second argument is always a list of collapsed lazy
+;;; arrays, i.e., lazy arrays whose shape consists only of ranges with a
+;;; start of zero and a stride of one.  This function must return one
+;;; delayed array for each supplied lazy array.
+(defgeneric backend-compute (backend lazy-arrays))
 
-(defgeneric schedule-on-backend (lazy-arrays backend))
+;;; The generic function BACKEND-SHEDULE is invoked to force the evaluation
+;;; of some lazy arrays in a non-blocking fashion.  This function must
+;;; return an opaque object that can later be passed to BACKEND-WAIT to
+;;; obtain the actual results.
+;;;
+;;; The third argument is a function that expects a list of delayed actions
+;;; -- one for each of the supplied lazy arrays -- and will use these as a
+;;; replacement for the original delayed actions.
+(defgeneric backend-schedule (backend lazy-arrays fixup))
 
-(defgeneric compute-immediates (lazy-arrays backend))
+;;; The generic function BACKEND-WAIT receives as its second argument a
+;;; list of objects that have been returned by earlier calls to
+;;; BACKEND-SCHEDULE.  It blocks until all the corresponding operations
+;;; have been performed.
+(defgeneric backend-wait (backend requests))
 
-(defgeneric lisp-datum-from-immediate (lazy-array))
-
+;;; The generic function DELETE-BACKEND can be invoked by a user to
+;;; explicitly disable that backend and free any resources that might be
+;;; held by it.
 (defgeneric delete-backend (backend))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -25,104 +44,121 @@
 ;;; Classes
 
 (defclass backend ()
-  ((%machine
-    :initarg :machine
-    :initform (host-machine)
-    :reader backend-machine
-    :type machine)))
+  ())
 
-(defclass asynchronous-backend (backend)
-  ((%scheduler-queue :initform (lparallel.queue:make-queue) :reader scheduler-queue)
-   (%scheduler-thread :accessor scheduler-thread)))
+(defclass deleted-backend ()
+  ())
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Methods
 
-(defmethod initialize-instance :after
-    ((asynchronous-backend asynchronous-backend) &key &allow-other-keys)
-  (let ((queue (scheduler-queue asynchronous-backend)))
-    (setf (scheduler-thread asynchronous-backend)
-          (bt:make-thread
-           (lambda ()
-             (loop for item = (lparallel.queue:pop-queue queue) do
-               (if (functionp item)
-                   (funcall item)
-                   (loop-finish))))
-           :name (format nil "~A scheduler thread" (class-name (class-of asynchronous-backend)))))))
+;;; The default methods for BACKEND-SHEDULE and BACKEND-WAIT are very
+;;; primitive and don't perform any asynchronous work at all.  Backend
+;;; developers are encouraged to override both methods with something
+;;; sensible.
+(defmethod backend-schedule
+    ((backend backend)
+     (lazy-arrays list)
+     (finalizer function))
+  (lambda ()
+    (funcall
+     finalizer
+     (mapcar (lambda (array) (make-delayed-array :storage array))
+             (backend-compute backend lazy-arrays)))))
 
-(defmethod compute-on-backend :before ((lazy-arrays list) (backend t))
-  (assert (every #'computablep lazy-arrays)))
-
-(defmethod schedule-on-backend :before ((lazy-arrays list) (backend t))
-  (assert (every #'computablep lazy-arrays)))
-
-(defmethod compute-on-backend ((lazy-arrays list) (backend backend))
-  (let* ((collapsing-transformations
-           (mapcar (alexandria:compose #'collapsing-transformation #'shape)
-                   lazy-arrays))
-         (immediates
-           (compute-immediates
-            (mapcar #'transform lazy-arrays collapsing-transformations)
-            backend)))
-    (loop for lazy-array in lazy-arrays
-          for collapsing-transformation in collapsing-transformations
-          for immediate in immediates
-          do (replace-lazy-array
-              lazy-array
-              (lazy-reshape immediate (shape lazy-array) collapsing-transformation)))
-    (values-list
-     (mapcar #'lisp-datum-from-immediate immediates))))
-
-(defmethod schedule-on-backend ((lazy-arrays list) (backend backend))
-  (compute-on-backend lazy-arrays backend))
-
-(defmethod schedule-on-backend
-    ((lazy-arrays list)
-     (asynchronous-backend asynchronous-backend))
-  (let ((promise (lparallel.promise:promise)))
-    (lparallel.queue:push-queue
-     (lambda ()
-       (lparallel.promise:fulfill promise
-         (compute-on-backend lazy-arrays asynchronous-backend)))
-     (scheduler-queue asynchronous-backend))
-    promise))
-
-(defmethod lisp-datum-from-immediate ((array-immediate array-immediate))
-  (if (zerop (rank array-immediate))
-      (aref (storage array-immediate))
-      (storage array-immediate)))
-
-(defmethod lisp-datum-from-immediate ((range-immediate range-immediate))
-  (let* ((shape (shape range-immediate))
-         (range (first (shape-ranges shape)))
-         (size (range-size range))
-         (array (make-array size)))
-    (loop for index below size do
-      (setf (aref array index) index))
-    array))
+(defmethod backend-wait
+    ((backend backend)
+     (requests list))
+  (mapc #'funcall requests))
 
 (defmethod delete-backend ((backend backend))
-  (values))
-
-(defmethod delete-backend ((asynchronous-backend asynchronous-backend))
-  (with-accessors ((queue scheduler-queue)
-                   (thread scheduler-thread)) asynchronous-backend
-    (lparallel.queue:push-queue :quit queue)
-    (bt:join-thread thread))
-  (call-next-method))
+  (change-class backend 'deleted-backend))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; API
 
-(defun compute (&rest arguments)
-  (compute-on-backend
-   (mapcar #'lazy-array arguments)
-   *backend*))
+(defmacro with-backend (backend-creation-form &body body)
+  `(let ((*backend* ,backend-creation-form))
+     (unwind-protect (progn ,@body)
+       (delete-backend *backend*))))
 
-(defun schedule (&rest arguments)
-  (schedule-on-backend
-   (mapcar #'lazy-array arguments)
-   *backend*))
+(defun compute (&rest arrays)
+  (values-list
+   (compute-list-of-arrays arrays)))
 
+(defun compute-list-of-arrays (arrays)
+  ;; Collapse all arguments so that they can be represented as Lisp arrays.
+  (let* ((lazy-arrays (mapcar #'lazy-array arrays))
+         (transformations
+           (loop for lazy-array in lazy-arrays
+                 collect
+                 (collapsing-transformation
+                  (lazy-array-shape lazy-array))))
+         (collapsed-lazy-arrays
+           (mapcar #'transform-lazy-array lazy-arrays transformations))
+         ;; Tell the backend to compute the supplied lazy arrays after
+         ;; collapsing them.
+         (result-arrays (backend-compute *backend* collapsed-lazy-arrays)))
+    ;; Project the results back to the shape of the original arguments, and
+    ;; replace these arguments with the newly computed stuff.  This is the
+    ;; only side-effect that we ever perform on data flow graphs, but it is
+    ;; an important one.  Otherwise, we'd have to recompute each lazy array
+    ;; for each data flow graph it appears in.
+    (loop for lazy-array in lazy-arrays
+          for transformation in transformations
+          for collapsed-lazy-array in collapsed-lazy-arrays
+          for result-array in result-arrays
+          do (setf (lazy-array-delayed-action collapsed-lazy-array)
+                   (make-delayed-array :storage result-array))
+             (unless (eq lazy-array collapsed-lazy-array)
+               (setf (lazy-array-delayed-action lazy-array)
+                     (make-delayed-reshape
+                      :transformation transformation
+                      :input collapsed-lazy-array))))
+    ;; Return the lisp datum corresponding to each immediate.
+    (mapcar #'array-value result-arrays)))
+
+(defun array-value (array)
+  (declare (array array))
+  (if (zerop (array-rank array))
+      (aref array)
+      array))
+
+(declaim (bordeaux-threads:lock *schedule-lock*))
+(defvar *schedule-lock* (bordeaux-threads:make-lock "Petalisp Schedule Lock"))
+
+(defun schedule (&rest arrays)
+  (schedule-list-of-arrays arrays))
+
+(defun schedule-list-of-arrays (arrays)
+  (let* ((lazy-arrays (mapcar #'lazy-array arrays))
+         (transformations
+           (loop for lazy-array in lazy-arrays
+                 collect
+                 (collapsing-transformation
+                  (lazy-array-shape lazy-array))))
+         (collapsed-lazy-arrays
+           (mapcar #'transform-lazy-array lazy-arrays transformations)))
+    (backend-schedule
+     *backend*
+     collapsed-lazy-arrays
+     (lambda (results)
+       (loop for lazy-array in lazy-arrays
+             for collapsed-lazy-array in collapsed-lazy-arrays
+             for transformation in transformations
+             for result in results
+             do (setf (lazy-array-delayed-action collapsed-lazy-array)
+                      (etypecase result
+                        (delayed-action result)
+                        (array (make-delayed-array :storage result))))
+                (unless (eq lazy-array collapsed-lazy-array)
+                  (setf (lazy-array-delayed-action lazy-array)
+                        (make-delayed-reshape
+                         :transformation transformation
+                         :input collapsed-lazy-array))))))))
+
+(defun wait (&rest requests)
+  (backend-wait *backend* requests)
+  nil)
