@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.core)
 
@@ -9,9 +9,10 @@
 
 (defun substitute-lazy-arrays (roots new-lazy-arrays old-lazy-arrays)
   (let ((*substitutions* (make-hash-table :test #'eq)))
+    (assert (= (length new-lazy-arrays) (length old-lazy-arrays)))
     (loop for new-lazy-array in new-lazy-arrays
           for old-lazy-array in old-lazy-arrays do
-            (assert (shape-equal
+            (assert (shape=
                      (lazy-array-shape new-lazy-array)
                      (lazy-array-shape old-lazy-array)))
             (assert (petalisp.type-inference:ntype-subtypep
@@ -64,5 +65,6 @@
    :inputs (mapcar #'substitute-lazy-array (delayed-fuse-inputs delayed-fuse))))
 
 (defmethod substitute-delayed-action ((delayed-action delayed-action))
-  ;; All other kinds of delayed actions need not be copied.
+  ;; Other delayed actions need not be copied because they don't depend on
+  ;; other lazy-arrays.
   delayed-action)

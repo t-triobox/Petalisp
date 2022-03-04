@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
@@ -62,6 +62,7 @@
    #:prepare
    #:prepare-list-of-arrays
    #:vectorize
+   #:evaluator
 
    ;; Backends
    #:*backend*
@@ -97,7 +98,7 @@
    #:shape-rank
    #:shape-ranges
    #:shape-size
-   #:shape-equal
+   #:shape=
    #:shape-difference-list
    #:shape-intersection
    #:shape-intersectionp
@@ -129,7 +130,7 @@
    #:make-transformation
    #:identity-transformation
    #:invert-transformation
-   #:transformation-equal
+   #:transformation=
    #:compose-transformations
    #:collapsing-transformation
    #:enlarge-transformation
@@ -158,8 +159,9 @@
 
   (:shadowing-import-from :petalisp.ir #:make-ir-backend)
   (:shadowing-import-from :petalisp.native-backend #:make-native-backend)
-  (:shadowing-import-from :petalisp.multicore-backend #:make-multicore-backend))
+  (:shadowing-import-from :petalisp.multicore-backend #:make-multicore-backend)
+  (:shadowing-import-from :petalisp.xmas-backend #:make-xmas-backend))
 
 (in-package #:petalisp.api)
 
-(defvar *backend* (make-multicore-backend))
+(defvar *backend* (make-xmas-backend))

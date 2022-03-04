@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.type-inference)
 
@@ -41,9 +41,9 @@
 ;;;
 ;;; Reasoning About Ntypes
 
-(declaim (inline ntype-size))
-(defun ntype-size (ntype)
-  (%ntype-size
+(declaim (inline ntype-bits))
+(defun ntype-bits (ntype)
+  (%ntype-bits
    (generalize-ntype ntype)))
 
 (declaim (inline ntype-id))
@@ -77,6 +77,10 @@
           ((%ntypep ntype2)
            nil)
           (t (eql ntype1 ntype2)))))
+
+(defun ntype< (ntype1 ntype2)
+  (< (ntype-id ntype1)
+     (ntype-id ntype2)))
 
 (defun empty-ntype-p (ntype)
   (and (%ntypep ntype)

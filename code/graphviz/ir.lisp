@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.graphviz)
 
@@ -31,9 +31,7 @@
 (defmethod graphviz-potential-edges append
     ((graph ir-graph) node)
   (list (make-instance 'load-edge)
-        (make-instance 'store-edge)
-        (make-instance 'input-edge)
-        (make-instance 'output-edge)))
+        (make-instance 'input-edge)))
 
 (defmethod graphviz-incoming-edge-origins
     ((graph ir-graph)
@@ -73,37 +71,17 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Edge Appearance
-
-(defmethod graphviz-edge-attributes
-    ((graph ir-graph) (edge input-edge) from to edge-number)
-  `(:color "orange"))
-
-(defmethod graphviz-edge-attributes
-    ((graph ir-graph) (edge output-edge) from to edge-number)
-  `(:color "green"))
-
-(defmethod graphviz-edge-attributes
-    ((graph ir-graph) (edge load-edge) from to edge-number)
-  `(:color "blue"))
-
-(defmethod graphviz-edge-attributes
-    ((graph ir-graph) (edge store-edge) from to edge-number)
-  `(:color "red"))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;
 ;;; Node Appearance
 
 (defmethod graphviz-node-attributes
     ((graph ir-graph)
      (node petalisp.ir:kernel))
-  `(:fillcolor "gray"))
+  `(:fillcolor "#B2DF8A"))
 
 (defmethod graphviz-node-attributes
     ((graph ir-graph)
      (node petalisp.ir:buffer))
-  `(:fillcolor "indianred1"))
+  `(:fillcolor "#ABCEF3"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -113,7 +91,8 @@
     ((graph ir-graph)
      (buffer petalisp.ir:buffer))
   `(("shape" . ,(stringify (petalisp.ir:buffer-shape buffer)))
-    ("ntype" . ,(stringify (petalisp.ir:buffer-ntype buffer)))
+    ("type" . ,(stringify (petalisp.type-inference:type-specifier (petalisp.ir:buffer-ntype buffer))))
+    ("depth" . ,(stringify (petalisp.ir:buffer-depth buffer)))
     ("storage" . ,(stringify (type-of (petalisp.ir:buffer-storage buffer))))))
 
 (defun hide-buffers (references)
@@ -128,7 +107,7 @@
      (kernel petalisp.ir:kernel))
   `(("iteration-space" . ,(stringify (petalisp.ir:kernel-iteration-space kernel)))
     ,@(let ((instructions '()))
-        (petalisp.ir:map-instructions
+        (petalisp.ir:map-kernel-instructions
          (lambda (instruction)
            (push instruction instructions))
          kernel)

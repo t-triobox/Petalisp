@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.graphviz)
 
@@ -19,8 +19,16 @@
 (defmethod graphviz-node-attributes
     ((graph petalisp-graph)
      (node t))
-  `(:shape :box :style :filled))
+  `(:shape :box :style :filled :penwidth 2.0))
 
 (defmethod graphviz-graph-attributes
     ((graph petalisp-graph))
   `())
+
+(defmethod graphviz-edge-attributes
+    ((graph petalisp-graph)
+     (edge petalisp-edge)
+     (form t)
+     (to t)
+     edge-number)
+  '(:penwidth 2.0))

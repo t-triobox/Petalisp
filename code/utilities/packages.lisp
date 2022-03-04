@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
@@ -72,4 +72,14 @@
 
    ;; number-of-cpus.lisp
    #:number-of-cpus
-   ))
+
+   ;; topological-sort.lisp
+   #:topological-sort
+
+   ;; graph-coloring.lisp
+   #:make-cgraph
+   #:cgraph-add-conflict
+   #:cgraph-coloring
+
+   ;; karmarkar-karp.lisp
+   #:karmarkar-karp))

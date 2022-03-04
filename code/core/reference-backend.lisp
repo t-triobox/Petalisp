@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.core)
 
@@ -15,8 +15,6 @@
 
 (defvar *table*)
 
-(defvar *lazy-array*)
-
 (defmethod backend-compute
     ((backend reference-backend)
      (lazy-arrays list))
@@ -24,16 +22,15 @@
     (mapcar #'compute-delayed-array lazy-arrays)))
 
 (defun compute-delayed-array (lazy-array)
-  (with-accessors ((shape lazy-array-shape)
-                   (element-type lazy-array-element-type))
-      lazy-array
-    (let ((array (make-array (shape-dimensions shape) :element-type element-type)))
-      (map-shape
-       (lambda (index)
-         (setf (apply #'aref array index)
-               (lazy-array-value lazy-array index)))
-       shape)
-      array)))
+  (let* ((shape (lazy-array-shape lazy-array))
+         (element-type (lazy-array-element-type lazy-array))
+         (array (make-array (shape-dimensions shape) :element-type element-type)))
+    (map-shape
+     (lambda (index)
+       (setf (apply #'aref array index)
+             (lazy-array-value lazy-array index)))
+     shape)
+    array))
 
 (defun lazy-array-value (lazy-array index)
   (alexandria:ensure-gethash
@@ -41,8 +38,7 @@
    (alexandria:ensure-gethash
     lazy-array *table*
     (make-hash-table :test #'equal))
-   (let ((*lazy-array* lazy-array))
-     (delayed-action-value (lazy-array-delayed-action lazy-array) index))))
+   (delayed-action-value (lazy-array-delayed-action lazy-array) index)))
 
 (defmethod delayed-action-value
     ((delayed-map delayed-map) index)
@@ -90,13 +86,20 @@
   (apply #'aref (delayed-array-storage delayed-array) index))
 
 (defmethod delayed-action-value
-    ((delayed-thunk delayed-thunk) index)
-  (delayed-action-value (funcall (delayed-thunk-thunk delayed-thunk))))
-
-(defmethod delayed-action-value
     ((delayed-nop delayed-nop) index)
   (error "A delayed NOP should never be executed."))
 
 (defmethod delayed-action-value
     ((delayed-unknown delayed-unknown) index)
   (error "Attempt to evaluate a graph that contains unknowns."))
+
+(defmethod delayed-action-value
+    ((delayed-wait delayed-wait) index)
+  (wait (delayed-wait-request delayed-wait))
+  (delayed-action-value
+   (delayed-wait-delayed-action delayed-wait)
+   index))
+
+(defmethod delayed-action-value
+    ((delayed-failure delayed-failure) index)
+  (error (delayed-failure-condition delayed-failure)))

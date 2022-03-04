@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
@@ -17,7 +17,8 @@
    #:ir-from-lazy-arrays
 
    ;; Structs
-   #:instruction
+   #:program
+   #:task
    #:buffer
    #:kernel
    #:instruction
@@ -28,6 +29,8 @@
    #:iref-instruction
 
    ;; Predicates
+   #:programp
+   #:taskp
    #:bufferp
    #:leaf-buffer-p
    #:root-buffer-p
@@ -41,10 +44,19 @@
    #:store-instruction-p
 
    ;; Constructors
+   #:make-program
+   #:make-task
    #:make-kernel
    #:make-buffer
 
    ;; Mapping
+   #:map-program-tasks
+   #:map-program-kernels
+   #:map-program-buffers
+   #:map-task-successors
+   #:map-task-predecessors
+   #:map-task-kernels
+   #:map-task-defined-buffers
    #:map-buffers-and-kernels
    #:map-kernels
    #:map-buffers
@@ -56,22 +68,56 @@
    #:map-kernel-load-instructions
    #:map-kernel-inputs
    #:map-kernel-outputs
+   #:map-kernel-instructions
    #:map-instruction-inputs
-   #:map-instructions
+
+   ;; Do Macros
+   #:do-program-tasks
+   #:do-task-successors
+   #:do-task-predecessors
+   #:do-task-kernels
+   #:do-task-defined-buffers
+   #:do-program-buffers
+   #:do-program-kernels
+   #:do-buffer-inputs
+   #:do-buffer-outputs
+   #:do-buffer-load-instructions
+   #:do-buffer-store-instructions
+   #:do-kernel-inputs
+   #:do-kernel-outputs
+   #:do-kernel-load-instructions
+   #:do-kernel-store-instructions
+   #:do-instruction-inputs
+   #:do-kernel-instructions
 
    ;; Accessors
+   #:program-initial-task
+   #:program-final-task
+   #:program-leaf-alist
+   #:program-task-vector
+   #:program-number-of-buffers
+   #:program-number-of-kernels
+   #:program-number-of-tasks
+   #:program-buffer
+   #:program-kernel
+   #:task-program
+   #:task-number
    #:buffer-shape
    #:buffer-size
    #:buffer-ntype
+   #:buffer-depth
    #:buffer-storage
    #:buffer-data
+   #:buffer-task
+   #:buffer-program
+   #:buffer-bits
+   #:buffer-number
    #:buffer-number-of-inputs
    #:buffer-number-of-outputs
    #:buffer-number-of-loads
    #:buffer-number-of-stores
    #:kernel-iteration-space
    #:kernel-blueprint
-   #:kernel-buffers
    #:kernel-instruction-vector
    #:kernel-number-of-inputs
    #:kernel-number-of-outputs
@@ -79,6 +125,9 @@
    #:kernel-number-of-stores
    #:kernel-cost
    #:kernel-data
+   #:kernel-task
+   #:kernel-program
+   #:kernel-number
    #:instruction-number
    #:instruction-inputs
    #:instruction-transformation
@@ -86,20 +135,20 @@
    #:store-instruction-buffer
    #:load-instruction-buffer
 
-   ;; Devices, Workers, and Memory
+   ;; Devices, Cores, and Memory
    #:device
    #:device-name
    #:device-memory
-   #:device-workers
+   #:device-cores
    #:host-device
-   #:worker
-   #:worker-name
-   #:worker-memory
+   #:core
+   #:core-name
+   #:core-memory
    #:memory
    #:memory-name
    #:memory-parent
    #:memory-children
-   #:memory-workers
+   #:memory-cores
    #:memory-size
    #:memory-granularity
    #:memory-latency
@@ -110,5 +159,4 @@
    #:make-ir-backend
    #:check-ir
    #:interpret-kernel
-   #:compile-kernel
    #:translate-blueprint))

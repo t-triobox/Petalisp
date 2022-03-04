@@ -6,6 +6,7 @@
   ("alexandria"
    "atomics"
    "bordeaux-threads"
+   "queues.priority-queue"
    "trivia"
    "trivial-garbage")
 
@@ -26,4 +27,7 @@
    (:file "prime-factors")
    (:file "weak-set")
    (:file "with-collectors")
-   (:file "number-of-cpus")))
+   (:file "number-of-cpus")
+   (:file "topological-sort")
+   (:file "graph-coloring")
+   (:file "karmarkar-karp")))

@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.ir)
 
@@ -50,6 +50,11 @@
   ;; A hash table, mapping from Common Lisp scalars to buffers of rank zero
   ;; containing those scalars.
   (scalar-table (make-hash-table :test #'eql) :type hash-table)
+  ;; A hash table, mapping from unknowns to buffers.
+  (unknown-table (make-hash-table :test #'eq) :type hash-table)
+  ;; An alist whose entries are conses of leaf buffers and their
+  ;; corresponding lazy arrays.
+  (leaf-alist '() :type list)
   ;; A list of lists of conses that need to be updated by writing the value
   ;; of the cdr of the first cons to the cdr of each remaining cons.
   (cons-updates '() :type list)
@@ -182,6 +187,7 @@
              (shape (lazy-array-shape lazy-array))
              (buffer (make-buffer
                       :shape shape
+                      :depth (lazy-array-depth lazy-array)
                       :ntype (petalisp.type-inference:generalize-ntype
                               (lazy-array-ntype lazy-array))))
              (dendrite (make-dendrite cluster shape (list buffer))))
@@ -212,6 +218,7 @@
     (nreverse root-buffers)))
 
 (defun finalize-ir (root-buffers)
+  (ensure-tasks root-buffers)
   (map-buffers-and-kernels
    #'finalize-buffer
    #'finalize-kernel
@@ -219,36 +226,64 @@
 
 (defun finalize-buffer (buffer)
   (setf (buffer-data buffer) nil)
+  (setf (buffer-number buffer)
+        (program-number-of-buffers (buffer-program buffer)))
+  (incf (program-number-of-buffers (buffer-program buffer)))
   (if (interior-buffer-p buffer)
       (transform-buffer buffer (normalizing-transformation (buffer-shape buffer)))
       (transform-buffer buffer (collapsing-transformation (buffer-shape buffer)))))
 
 (defun finalize-kernel (kernel)
   (setf (kernel-data kernel) nil)
-  ;; We use this opportunity to compute the kernel instruction vector,
-  ;; knowing it will be cached for all future invocations.
-  (setf (kernel-instruction-vector kernel)
-        (let ((counter 0))
-          (labels ((clear-instruction-number (instruction)
-                     (unless (= -1 (instruction-number instruction))
-                       (incf counter)
-                       (setf (instruction-number instruction) -1)
-                       (map-instruction-inputs #'clear-instruction-number instruction))))
-            (map-kernel-store-instructions #'clear-instruction-number kernel))
-          (let ((vector (make-array counter))
-                (index 0))
-            (labels ((assign-instruction-number (instruction)
-                       (when (= -1 (instruction-number instruction))
-                         (setf (instruction-number instruction) -2)
-                         (map-instruction-inputs #'assign-instruction-number instruction)
-                         (setf (instruction-number instruction) index)
-                         (setf (svref vector index) instruction)
-                         (incf index))))
-              (map-kernel-store-instructions #'assign-instruction-number kernel))
-            (setf (kernel-instruction-vector kernel) vector))))
-  (transform-kernel
-   kernel
-   (normalizing-transformation (kernel-iteration-space kernel))))
+  (setf (kernel-number kernel)
+        (program-number-of-kernels (kernel-program kernel)))
+  (incf (program-number-of-kernels (kernel-program kernel)))
+  (recompute-kernel-instruction-vector kernel)
+  (transform-kernel kernel (normalizing-transformation (kernel-iteration-space kernel))))
+
+(defun recompute-kernel-instruction-vector (kernel)
+  (let ((magic-fixnum (- most-positive-fixnum 17))
+        (size 0))
+    (labels ((clear-instruction-number (instruction)
+               (unless (eql (instruction-number instruction) magic-fixnum)
+                 (setf (instruction-number instruction) magic-fixnum)
+                 (incf size)
+                 (map-instruction-inputs #'clear-instruction-number instruction))))
+      (map-kernel-store-instructions #'clear-instruction-number kernel))
+    (let ((vector (make-array size))
+          (index 0))
+      (labels ((assign-instruction-number (instruction)
+                 (when (eq (instruction-number instruction) magic-fixnum)
+                   (setf (instruction-number instruction) size)
+                   (map-instruction-inputs #'assign-instruction-number instruction)
+                   (setf (instruction-number instruction) index)
+                   (setf (svref vector index) instruction)
+                   (incf index))))
+        (map-kernel-store-instructions #'assign-instruction-number kernel))
+      (setf (kernel-instruction-vector kernel) vector)
+      kernel)))
+
+(defun recompute-program-task-vector (program)
+  (let ((magic-fixnum (- most-positive-fixnum 19))
+        (size 0))
+    (labels ((clear-task-number (task)
+               (unless (eql (task-number task) magic-fixnum)
+                 (setf (task-number task) magic-fixnum)
+                 (incf size)
+                 (map-task-predecessors #'clear-task-number task))))
+      (clear-task-number (program-final-task program)))
+    (let ((vector (make-array size))
+          (index 0))
+      (labels ((assign-task-number (task)
+                 (when (eql (task-number task) magic-fixnum)
+                   (setf (task-number task) size)
+                   (map-task-predecessors #'assign-task-number task)
+                   (setf (task-number task) index)
+                   (setf (svref vector index) task)
+                   (incf index))))
+        (assign-task-number (program-final-task program)))
+      (setf (program-task-vector program) vector)
+      program)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -328,7 +363,7 @@
        (eql
         (car (dendrite-cons d1))
         (car (dendrite-cons d2)))
-       (transformation-equal
+       (transformation=
         (dendrite-transformation d1)
         (dendrite-transformation d2))))
 
@@ -337,6 +372,7 @@
      (lazy-array lazy-array)
      (delayed-action delayed-action))
   (let* ((shape-dendrites-alist (partition-dendrites (cluster-dendrites cluster)))
+         (depth (lazy-array-depth lazy-array))
          ;; Create one buffer for each shape-dendrites-alist entry.
          (buffer-dendrites-alist
            (loop for (shape . dendrites) in shape-dendrites-alist
@@ -344,6 +380,7 @@
                  (cons
                   (make-buffer
                    :shape shape
+                   :depth depth
                    :ntype (cluster-ntype cluster))
                   dendrites))))
     ;; Emit one load instruction for each dendrite.
@@ -390,6 +427,7 @@
   ;; code when some return values of a multiple valued function are used in
   ;; a wildly different way than others.
   (let* ((shape-dendrites-alist (partition-dendrites (cluster-dendrites cluster)))
+         (depth (lazy-array-depth lazy-array))
          ;; A list of buffer-dendrites alists, one for each value returned
          ;; by the lazy multiple value map instruction.  Each
          ;; buffer-dendrites alist has the same length as the shape
@@ -409,6 +447,7 @@
                            nil
                            (cons (make-buffer
                                   :shape (car entry)
+                                  :depth depth
                                   :ntype buffer-ntype)
                                  dendrites))))))
     ;; Emit one load instruction for each dendrite.
@@ -626,26 +665,32 @@
     (let* ((kernel (stem-kernel stem))
            (shape (lazy-array-shape lazy-array))
            (storage (delayed-array-storage delayed-array))
+           (depth (lazy-array-depth lazy-array))
            (ntype (petalisp.type-inference:generalize-ntype
-                   (lazy-array-ntype lazy-array)))
-           (buffer
-             (if (zerop (shape-rank shape))
-                 (alexandria:ensure-gethash
-                  (aref (delayed-array-storage delayed-array))
-                  (ir-converter-scalar-table *ir-converter*)
-                  (make-buffer
-                   :shape shape
-                   :ntype ntype
-                   :storage storage))
-                 (alexandria:ensure-gethash
-                  (delayed-array-storage delayed-array)
-                  (ir-converter-array-table *ir-converter*)
-                  (make-buffer
-                   :shape shape
-                   :ntype ntype
-                   :storage storage)))))
-      (setf (cdr cons)
-            (make-load-instruction kernel buffer transformation)))))
+                   (lazy-array-ntype lazy-array))))
+      (multiple-value-bind (buffer reusedp)
+          (if (zerop (shape-rank shape))
+              (alexandria:ensure-gethash
+               (aref (delayed-array-storage delayed-array))
+               (ir-converter-scalar-table *ir-converter*)
+               (make-buffer
+                :shape shape
+                :ntype ntype
+                :depth depth
+                :storage storage))
+              (alexandria:ensure-gethash
+               (delayed-array-storage delayed-array)
+               (ir-converter-array-table *ir-converter*)
+               (make-buffer
+                :shape shape
+                :ntype ntype
+                :depth depth
+                :storage storage)))
+        (when (not reusedp)
+          (push (cons buffer lazy-array)
+                (ir-converter-leaf-alist *ir-converter*)))
+        (setf (cdr cons)
+              (make-load-instruction kernel buffer transformation))))))
 
 (defmethod grow-dendrite-aux
     ((dendrite dendrite)
@@ -660,13 +705,154 @@
     ((dendrite dendrite)
      (lazy-array lazy-array)
      (delayed-unknown delayed-unknown))
-  (with-accessors ((cons dendrite-cons)
-                   (transformation dendrite-transformation)) dendrite
-    (setf (cdr cons)
-          (make-call-instruction 1 'reference-to-delayed-unknown '()))))
+  (with-accessors ((shape dendrite-shape)
+                   (transformation dendrite-transformation)
+                   (stem dendrite-stem)
+                   (cons dendrite-cons)) dendrite
+    (let* ((kernel (stem-kernel stem))
+           (shape (lazy-array-shape lazy-array))
+           (depth (lazy-array-depth lazy-array))
+           (ntype (petalisp.type-inference:generalize-ntype
+                   (lazy-array-ntype lazy-array))))
+      (multiple-value-bind (buffer reusedp)
+          (alexandria:ensure-gethash
+           lazy-array
+           (ir-converter-unknown-table *ir-converter*)
+           (make-buffer
+            :shape shape
+            :ntype ntype
+            :depth depth))
+        (when (not reusedp)
+          (push (cons buffer lazy-array)
+                (ir-converter-leaf-alist *ir-converter*)))
+        (setf (cdr cons)
+              (make-load-instruction kernel buffer transformation))))))
 
 (defun reference-to-delayed-unknown ()
   (error "Attempt to evaluate an unknown lazy array."))
+
+(defmethod grow-dendrite-aux
+    ((dendrite dendrite)
+     (lazy-array lazy-array)
+     (delayed-wait delayed-wait))
+  (grow-dendrite-aux dendrite lazy-array (delayed-wait-delayed-action delayed-wait)))
+
+(defmethod grow-dendrite-aux
+    ((dendrite dendrite)
+     (lazy-array lazy-array)
+     (delayed-failure delayed-failure))
+  (error (delayed-failure-condition delayed-failure)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Task Partitioning
+;;;
+;;; This pass takes an IR and ensures that each buffer and kernel therein
+;;; has an associated task, and that the successors and predecessors of
+;;; each task are set up correctly.
+
+(defun ensure-tasks (root-buffers)
+  ;; Ensure that each kernel and buffer has a task.
+  (let* ((program (make-program :leaf-alist (ir-converter-leaf-alist *ir-converter*)))
+         (initial-task (make-task :program program))
+         (final-task (make-task :program program))
+         (root-tasks '()))
+    (setf (program-initial-task program) initial-task)
+    (setf (program-final-task program) final-task)
+    (let ((worklist root-buffers))
+      (loop until (null worklist) for buffer = (pop worklist) do
+        (when (null (buffer-task buffer))
+          (if (leaf-buffer-p buffer)
+              (unless (buffer-task buffer)
+                (setf (buffer-task buffer) initial-task)
+                (push buffer (task-defined-buffers initial-task)))
+              (do-task-kernels (kernel (ensure-buffer-task buffer program))
+                (do-kernel-inputs (buffer kernel)
+                  (when (null (buffer-task buffer))
+                    (push buffer worklist))))))))
+    ;; Determie the root tasks.
+    (loop for root-buffer in root-buffers do
+      (pushnew (buffer-task root-buffer) root-tasks))
+    ;; Determine the predecessors and successors of each task.
+    (let ((worklist root-tasks))
+      (loop until (null worklist) for task = (pop worklist) do
+        ;; A task with successors has already been processed.
+        (unless (task-successors task)
+          ;; Determine all successors.
+          (do-task-defined-buffers (buffer task)
+            (do-buffer-outputs (kernel buffer)
+              (let ((successor (kernel-task kernel)))
+                (unless (eq successor task)
+                  (pushnew successor (task-successors task))))))
+          ;; A task with zero successors is a predecessor of the final
+          ;; task.
+          (when (null (task-successors task))
+            (push task (task-predecessors final-task))
+            (push final-task (task-successors task)))
+          ;; Determine all predecessors.
+          (do-task-kernels (kernel task)
+            (do-kernel-inputs (buffer kernel)
+              (let ((predecessor (buffer-task buffer)))
+                (unless (eq predecessor task)
+                  (pushnew predecessor (task-predecessors task))))))
+          ;; Enqueue all predecessors that haven't been processed so far.
+          (loop for predecessor in (task-predecessors task) do
+            (unless (task-successors predecessor)
+              (push predecessor worklist))))))
+    ;; Finish by computing the task vector.
+    (recompute-program-task-vector program)
+    ;; Populate the leaf buffer alist.
+    program))
+
+(defun ensure-buffer-task (buffer program)
+  (let ((task (make-task :program program))
+        (max-depth (buffer-depth buffer))
+        (kernel-worklist '())
+        (buffer-worklist (list buffer)))
+    (loop until (and (null buffer-worklist) (null kernel-worklist)) do
+      (loop until (and (null buffer-worklist) (null kernel-worklist)) do
+        (loop until (null buffer-worklist) for buffer = (pop buffer-worklist) do
+          (unless (eq (buffer-task buffer) task)
+            (unless (null (buffer-task buffer))
+              (error "Attempt to assign a task to a buffer that already has a task."))
+            (setf (buffer-task buffer) task)
+            (push buffer (task-defined-buffers task))
+            (setf max-depth (max max-depth (buffer-depth buffer)))
+            (do-buffer-inputs (kernel buffer)
+              (pushnew kernel kernel-worklist))))
+        (loop until (null kernel-worklist) for kernel = (pop kernel-worklist) do
+          (unless (eq (kernel-task kernel) task)
+            (unless (null (kernel-task kernel))
+              (error "Attempt to assign a task to a kernel that already has a task."))
+            (setf (kernel-task kernel) task)
+            (push kernel (task-kernels task))
+            (do-kernel-outputs (buffer kernel)
+              (pushnew buffer buffer-worklist)))))
+      ;; Compute the event horizon of all buffers in this task, and ensure
+      ;; that any buffer in the event horizon that also appears as an input
+      ;; of any of the task's kernels is also added to the task.
+      (let ((event-horizon (event-horizon (task-defined-buffers task) max-depth)))
+        (loop for kernel in (task-kernels task) do
+          (do-kernel-inputs (buffer kernel)
+            (when (member buffer event-horizon)
+               (push buffer buffer-worklist))))))
+    task))
+
+;;; The event horizon of a set of buffers are all buffers that depend,
+;;; directly or indirectly, on the contents of those buffers and that have
+;;; less than the supplied depth.
+(defun event-horizon (buffers depth)
+  (let ((result '())
+        (worklist buffers))
+    (loop until (null worklist) for buffer = (pop worklist) do
+      (when (< (buffer-depth buffer) depth)
+        (unless (member buffer result)
+          (push buffer result)
+          (do-buffer-outputs (kernel buffer)
+            (do-kernel-outputs (buffer kernel)
+              (unless (< (buffer-depth buffer) depth)
+                (pushnew buffer worklist)))))))
+    result))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -711,14 +897,12 @@
         (substitutes '()))
     ;; Determine all kernels reading from any of the prune's buffers.
     (loop for buffer in (prune-buffers prune) do
-      (map-buffer-outputs
-       (lambda (reader) (pushnew reader readers))
-       buffer))
+      (do-buffer-outputs (reader buffer)
+        (pushnew reader readers)))
     ;; Determine all kernels writing to any of the prune's buffers.
     (loop for buffer in (prune-buffers prune) do
-      (map-buffer-inputs
-       (lambda (writer) (pushnew writer writers))
-       buffer))
+      (do-buffer-inputs (writer buffer)
+        (pushnew writer writers)))
     ;; For each reader that is not also a writer, we compute a new kernel
     ;; where any reference to a superfluous buffer is replaced by a copy of
     ;; the kernel writing to the referenced part of the superfluous buffer.
@@ -752,18 +936,14 @@
       (loop for dendrite in dendrites do
         (assert (eq buffer (load-instruction-buffer (cdr (dendrite-cons dendrite)))))
         (block check-one-dendrite
-          (map-buffer-inputs
-           (lambda (writer)
-             (map-kernel-store-instructions
-              (lambda (store-instruction)
-                (when (and (eq (store-instruction-buffer store-instruction) buffer)
-                           (subshapep (dendrite-shape dendrite)
-                                      (transform-shape
-                                       (kernel-iteration-space writer)
-                                       (store-instruction-transformation store-instruction))))
-                  (return-from check-one-dendrite)))
-              writer))
-           buffer)
+          (do-buffer-inputs (writer buffer)
+            (do-kernel-store-instructions (store-instruction writer)
+              (when (and (eq (store-instruction-buffer store-instruction) buffer)
+                         (subshapep (dendrite-shape dendrite)
+                                    (transform-shape
+                                     (kernel-iteration-space writer)
+                                     (store-instruction-transformation store-instruction))))
+                (return-from check-one-dendrite))))
           ;; If we reach this point, it means we haven't found a unique
           ;; writer for this particular dendrite.  Give up.
           (return-from find-prune nil))))
@@ -789,22 +969,12 @@
              (scan-neighbors (buffer)
                ;; Scan all buffers that are read by a kernel that also
                ;; reads the current buffer.
-               (map-buffer-outputs
-                (lambda (reader)
-                  (map-kernel-inputs
-                   (lambda (buffer)
-                     (scan-buffer buffer))
-                   reader))
-                buffer)
+               (do-buffer-outputs (reader buffer)
+                 (map-kernel-inputs #'scan-buffer reader))
                ;; Scan all buffers that are written to by a kernel that
                ;; also writes to the current buffer.
-               (map-buffer-inputs
-                (lambda (writer)
-                  (map-kernel-outputs
-                   (lambda (buffer)
-                     (scan-buffer buffer))
-                   writer))
-                buffer)))
+               (do-buffer-inputs (writer buffer)
+                 (map-kernel-outputs #'scan-buffer writer))))
       (scan-buffer buffer))
     buffer-dendrites-alist))
 
@@ -819,7 +989,7 @@
 (defun ensure-instruction-table (kernel transformation)
   (loop for (entry . table) in *instruction-tables* do
     (when (and (eq (car entry) kernel)
-               (transformation-equal (cdr entry) transformation))
+               (transformation= (cdr entry) transformation))
       (return-from ensure-instruction-table table)))
   (let ((instruction-table (make-hash-table :test #'eq)))
     (push (cons (cons kernel transformation) instruction-table)
@@ -906,25 +1076,23 @@
         ;; If the buffer is to be pruned, we replace the load instruction
         ;; by a clone of the matching store instruction.
         (let ((reader-shape (transform-shape (kernel-iteration-space kernel) transformation)))
-          (map-buffer-inputs
-           (lambda (writer)
-             (loop for (store-buffer . store-instructions) in (kernel-targets writer) do
-               (when (eq store-buffer buffer)
-                 (loop for store-instruction in store-instructions do
-                   (when (subshapep
-                          reader-shape
-                          (transform-shape (kernel-iteration-space writer)
-                                           (store-instruction-transformation store-instruction)))
-                     (let* ((input (store-instruction-input store-instruction))
-                            (transformation
-                              (compose-transformations
-                               (invert-transformation
-                                (store-instruction-transformation store-instruction))
-                               transformation))
-                            (*instruction-table* (ensure-instruction-table writer transformation)))
-                       (return-from clone-reference
-                         (clone-reference (car input) (cdr input) kernel transformation))))))))
-           buffer)
+          (do-buffer-inputs (writer buffer)
+            (loop for (store-buffer . store-instructions) in (kernel-targets writer) do
+              (when (eq store-buffer buffer)
+                (loop for store-instruction in store-instructions do
+                  (when (subshapep
+                         reader-shape
+                         (transform-shape (kernel-iteration-space writer)
+                                          (store-instruction-transformation store-instruction)))
+                    (let* ((input (store-instruction-input store-instruction))
+                           (transformation
+                             (compose-transformations
+                              (invert-transformation
+                               (store-instruction-transformation store-instruction))
+                              transformation))
+                           (*instruction-table* (ensure-instruction-table writer transformation)))
+                      (return-from clone-reference
+                        (clone-reference (car input) (cdr input) kernel transformation))))))))
           (error "Invalid prune:~%~S" *prune*))
         ;; If the buffer is not to be pruned, simply create a new load
         ;; instruction and register it with the kernel and the buffer.

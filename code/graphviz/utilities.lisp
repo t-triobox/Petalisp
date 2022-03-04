@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.graphviz)
 
@@ -8,7 +8,8 @@
 
 (defun stringify (x)
   (with-standard-io-syntax
-    (let ((*print-length* 8)
+    (let ((*print-case* :downcase)
+          (*print-length* 8)
           (*print-right-margin* 60)
           (*print-pretty* t)
           (*print-escape* nil)

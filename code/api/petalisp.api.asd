@@ -6,10 +6,13 @@
   :depends-on
   ("alexandria"
    "trivia"
+   "split-sequence"
+   "trivial-macroexpand-all"
    "petalisp.utilities"
    "petalisp.core"
    "petalisp.native-backend"
-   "petalisp.multicore-backend")
+   "petalisp.multicore-backend"
+   "petalisp.xmas-backend")
 
   :in-order-to ((test-op (test-op "petalisp.test-suite")))
 

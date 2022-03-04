@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.core)
 
@@ -20,7 +20,7 @@
                     (transformation transformation))
            ;; Optimization: Drop references with no effect.
            (when (and (identity-transformation-p transformation)
-                      (shape-equal (lazy-array-shape lazy-array) shape))
+                      (shape= (lazy-array-shape lazy-array) shape))
              (return-from ref lazy-array))
            ;; Optimization: Compose consecutive lazy reshapes.
            (when (delayed-reshape-p (lazy-array-delayed-action lazy-array))

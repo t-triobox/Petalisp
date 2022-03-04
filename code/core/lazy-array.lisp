@@ -1,6 +1,15 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.core)
+
+;;; This lock must be held when mutating lazy array delayed actions.
+(defvar *lazy-array-lock*
+  (bordeaux-threads:make-recursive-lock "Petalisp Lazy Array Lock"))
+
+(defstruct (delayed-action
+            (:predicate delayed-action-p)
+            (:copier nil)
+            (:constructor nil)))
 
 (defstruct (lazy-array
             (:predicate lazy-array-p)
@@ -88,11 +97,6 @@
 ;;;
 ;;; We also amend the constructor of each delayed action to automatically
 ;;; increment the refcount of each referenced lazy array.
-
-(defstruct (delayed-action
-            (:predicate delayed-action-p)
-            (:copier nil)
-            (:constructor nil)))
 
 ;;; A delayed map action is executed by applying the specified operator
 ;;; element-wise to the specified inputs.
@@ -190,15 +194,6 @@
   (storage (alexandria:required-argument :storage)
    :type simple-array))
 
-;;; A delayed thunk action can be completed by executing its thunk.  Doing
-;;; so will return another delayed action that can then be used as a
-;;; replacement for the delayed thunk action.
-(defstruct (delayed-thunk
-            (:include delayed-action)
-            (:constructor %make-delayed-thunk))
-  (thunk (alexandria:required-argument :thunk)
-   :type function))
-
 ;;; A delayed nop action is inserted as the delayed action of an empty
 ;;; lazy array.
 (defstruct (delayed-nop
@@ -208,6 +203,28 @@
 ;;; arrays that serve as formal parameters only.
 (defstruct (delayed-unknown
             (:include delayed-action)))
+
+;;; A delayed wait is executed by calling WAIT on the request, and then
+;;; executing the delayed action of it.
+(defstruct (delayed-wait
+            (:include delayed-action))
+  (request (alexandria:required-argument :request)
+   :type t
+   :read-only t)
+  ;; Initially, this slot holds the delayed action of that lazy array
+  ;; before it was scheduled.  Later, once the request has completed, the
+  ;; slot is updated to the delayed action of the computed result.
+  (delayed-action (alexandria:required-argument :delayed-action)
+   :type delayed-action))
+
+;;; A delayed failure is executed by raising its condition via ERROR.  This
+;;; kind of delayed action is generated when a serious condition is raised
+;;; in the asynchronous execution after a SCHEDULE operation.
+(defstruct (delayed-failure
+            (:include delayed-action))
+  (condition (alexandria:required-argument :condition)
+   :type condition
+   :read-only t))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -331,9 +348,8 @@
   (:method ((delayed-fuse delayed-fuse))
     (delayed-fuse-inputs delayed-fuse)))
 
-(defun lazy-thunks-and-unknowns (graph-roots)
+(defun lazy-unknowns (graph-roots)
   (let ((table (make-hash-table :test #'eq))
-        (delayed-thunks '())
         (delayed-unknowns '()))
     (labels ((scan (lazy-array)
                (cond ((= 1 (lazy-array-refcount lazy-array))
@@ -343,21 +359,7 @@
                       (process lazy-array))))
              (process (lazy-array)
                (typecase (lazy-array-delayed-action lazy-array)
-                 (delayed-thunk (push lazy-array delayed-thunks))
                  (delayed-unknown (push lazy-array delayed-unknowns))
                  (otherwise (mapc #'scan (lazy-array-inputs lazy-array))))))
       (mapc #'scan graph-roots))
-    (values delayed-thunks delayed-unknowns)))
-
-(defun force-lazy-thunk (lazy-thunk)
-  (declare (lazy-array lazy-thunk))
-  (let ((delayed-action (lazy-array-delayed-action lazy-thunk)))
-    (when (delayed-thunk-p delayed-action)
-      (let ((new (funcall (delayed-thunk-thunk delayed-action))))
-        (unless (and (delayed-action-p new)
-                     (not (delayed-thunk-p new)))
-          (error "A delayed thunk must return a delayed action that is not a delayed thunk, got ~S."
-                 new))
-        (setf (lazy-array-delayed-action lazy-thunk)
-              new))))
-  lazy-thunk)
+    (values delayed-unknowns)))

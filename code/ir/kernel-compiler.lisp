@@ -1,9 +1,6 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.ir)
-
-(defun compile-kernel (kernel)
-  (translate-blueprint (kernel-blueprint kernel)))
 
 ;;; The code in this file handles the translation of a blueprint to the
 ;;; s-expression of a function with two arguments - a kernel with the
@@ -127,8 +124,10 @@
                                 (translate-instruction instruction-number)))
                  ;; Finally, convert the proxies of each level to suitable
                  ;; bindings and apply all wrappers.
-                 `(lambda (.kernel. .iteration-space.)
+                 `(lambda (.kernel. .iteration-space. &optional (.buffer-storage. #'buffer-storage))
                     (declare (ignorable .iteration-space.))
+                    (declare (kernel .kernel.))
+                    (declare (function .buffer-storage.))
                     (with-unsafe-optimizations
                       (let ((.instructions. (kernel-instruction-vector .kernel.)))
                         (declare (ignorable .instructions.))
@@ -345,7 +344,8 @@
           (let ,(loop for array-proxy across array-proxies
                       for entry in entries
                       collect
-                      `(,(proxy-variable array-proxy) (buffer-storage (car ,entry))))
+                      `(,(proxy-variable array-proxy)
+                        (funcall .buffer-storage. (car ,entry))))
             (declare
              ,@(loop for array-proxy across array-proxies
                      for array-type across array-types

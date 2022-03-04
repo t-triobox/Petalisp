@@ -1,6 +1,53 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.ir)
+
+(defstruct (program
+            (:predicate programp)
+            (:constructor make-program))
+  ;; A task with zero predecessors.
+  (initial-task nil)
+  ;; A task with zero successors.
+  (final-task nil)
+  ;; An list whose entries are conses of leaf buffers and their
+  ;; corresponding lazy arrays.
+  (leaf-alist '() :type list)
+  ;; A simple vector, mapping from task numbers to tasks.
+  (task-vector #() :type simple-vector)
+  ;; The number of buffers in the program.
+  (number-of-buffers 0 :type (and unsigned-byte fixnum))
+  ;; The number of kernels in the program.
+  (number-of-kernels 0 :type (and unsigned-byte fixnum)))
+
+(declaim (inline program-number-of-tasks))
+(defun program-number-of-tasks (program)
+  (declare (program program))
+  (length (program-task-vector program)))
+
+;;; A task is a collection of kernels that fully define a set of buffers.
+;;; The rules for task membership are:
+;;;
+;;; 1. All kernels writing to a buffer B with task T have task T.
+;;;
+;;; 2. All buffers written to by a kernel K with task T have task T.
+;;;
+;;; 3. A buffer that is used by a kernel in T and that depends on a buffer
+;;;    in T is also in T.
+(defstruct (task
+            (:predicate taskp)
+            (:constructor make-task))
+  (program '() :type program)
+  ;; The tasks that must be completed before this task can run.
+  (predecessors '() :type list)
+  ;; The tasks that have this one as their predecessor.
+  (successors '() :type list)
+  ;; This task's kernels.
+  (kernels '() :type list)
+  ;; The buffers defined by this task.
+  (defined-buffers '() :type list)
+  ;; A number that is unique among all tasks in this program and less than
+  ;; the number of tasks in the program.
+  (number 0 :type (and unsigned-byte fixnum)))
 
 ;;; A buffer represents a set of memory locations big enough to hold one
 ;;; element of type ELEMENT-TYPE for each index of the buffer's shape.
@@ -9,34 +56,55 @@
 (defstruct (buffer
             (:predicate bufferp)
             (:constructor make-buffer))
-  ;; The shape of the buffer.
+  ;; The shape of this buffer.
   (shape nil :type shape)
-  ;; The type code of all elements stored in the buffer.
+  ;; The type code of all elements stored in this buffer.
   (ntype nil :type petalisp.type-inference:ntype)
+  ;; The depth of the corresponding lazy array of this buffer.
+  (depth nil :type (and unsigned-byte fixnum))
   ;; An alist whose keys are kernels writing to this buffer, and whose
   ;; values are all store instructions from that kernel into this buffer.
   (writers '() :type list)
   ;; An alist whose keys are kernels reading from this buffer, and whose
   ;; values are all load instructions from that kernel into this buffer.
   (readers '() :type list)
+  ;; The task that defines this buffer.
+  (task nil :type (or null task))
   ;; An opaque object, representing the allocated memory.
   (storage nil)
   ;; A slot that can be used by the backend to attach further information
   ;; to the buffer.
-  (data nil))
+  (data nil)
+  ;; A number that is unique among all buffers in this program and less
+  ;; than the total number of buffers in this program.
+  (number 0 :type (and unsigned-byte fixnum)))
 
+(declaim (inline leaf-buffer-p))
 (defun leaf-buffer-p (buffer)
   (null (buffer-writers buffer)))
 
+(declaim (inline root-buffer-p))
 (defun root-buffer-p (buffer)
   (null (buffer-readers buffer)))
 
+(declaim (inline interior-buffer-p))
 (defun interior-buffer-p (buffer)
   (not (or (leaf-buffer-p buffer)
            (root-buffer-p buffer))))
 
+(declaim (inline buffer-size))
 (defun buffer-size (buffer)
   (shape-size (buffer-shape buffer)))
+
+(declaim (inline buffer-program))
+(defun buffer-program (buffer)
+  (declare (buffer buffer))
+  (task-program (buffer-task buffer)))
+
+(declaim (inline buffer-bits))
+(defun buffer-bits (buffer)
+  (* (petalisp.type-inference::ntype-bits (buffer-ntype buffer))
+     (shape-size (buffer-shape buffer))))
 
 ;;; A kernel represents a computation that, for each element in its
 ;;; iteration space, reads from some buffers and writes to some buffers.
@@ -52,15 +120,19 @@
   (targets '() :type list)
   ;; A vector of instructions of the kernel, in top-to-bottom order.
   (instruction-vector #() :type simple-vector)
+  ;; The task that contains this kernel.
+  (task nil :type (or null task))
   ;; A slot that can be used by the backend to attach further information
   ;; to the kernel.
-  (data nil))
+  (data nil)
+  ;; A number that is unique among all the kernels in this program and less
+  ;; than the total number of kernels in this program.
+  (number 0 :type (and unsigned-byte fixnum)))
 
-;;; This function is a very ad-hoc approximation of the cost of executing
-;;; the kernel.
-(defun kernel-cost (kernel)
-  (max 1 (* (shape-size (kernel-iteration-space kernel))
-            (kernel-highest-instruction-number kernel))))
+(declaim (inline kernel-program))
+(defun kernel-program (kernel)
+  (declare (kernel kernel))
+  (task-program (kernel-task kernel)))
 
 ;;; The behavior of a kernel is described by its iteration space and its
 ;;; instructions.  The instructions form a DAG, whose leaves are load
@@ -82,8 +154,9 @@
             (:predicate instructionp)
             (:copier nil)
             (:constructor nil))
-  (number 0 :type fixnum)
-  (inputs '() :type list))
+  (inputs '() :type list)
+  ;; A number that is unique among all instructions of this kernel.
+  (number 0 :type (and unsigned-byte fixnum)))
 
 ;;; A call instruction represents the application of a function to a set of
 ;;; values that are the result of other instructions.
@@ -219,6 +292,44 @@
 ;;;
 ;;; Mapping Functions
 
+(declaim (inline map-program-tasks))
+(defun map-program-tasks (function program)
+  (declare (program program))
+  (loop for task across (program-task-vector program) do
+    (funcall function task)))
+
+(declaim (inline map-task-successors))
+(defun map-task-successors (function task)
+  (mapc function (task-successors task)))
+
+(declaim (inline map-task-predecessors))
+(defun map-task-predecessors (function task)
+  (mapc function (task-predecessors task)))
+
+(declaim (inline map-task-kernels))
+(defun map-task-kernels (function task)
+  (mapc function (task-kernels task)))
+
+(declaim (inline map-task-defined-buffers))
+(defun map-task-defined-buffers (function task)
+  (mapc function (task-defined-buffers task)))
+
+(declaim (inline map-program-buffers))
+(defun map-program-buffers (function program)
+  (declare (program program))
+  (map-program-tasks
+   (lambda (task)
+     (map-task-defined-buffers function task))
+   program))
+
+(declaim (inline map-program-kernels))
+(defun map-program-kernels (function program)
+  (declare (program program))
+  (map-program-tasks
+   (lambda (task)
+     (map-task-kernels function task))
+   program))
+
 (declaim (inline map-buffer-inputs))
 (defun map-buffer-inputs (function buffer)
   (declare (function function)
@@ -253,24 +364,6 @@
       (funcall function store-instruction)))
   buffer)
 
-(declaim (inline map-kernel-store-instructions))
-(defun map-kernel-store-instructions (function kernel)
-  (declare (function function)
-           (kernel kernel))
-  (loop for (nil . store-instructions) in (kernel-targets kernel) do
-    (loop for store-instruction in store-instructions do
-      (funcall function store-instruction)))
-  kernel)
-
-(declaim (inline map-kernel-load-instructions))
-(defun map-kernel-load-instructions (function kernel)
-  (declare (function function)
-           (kernel kernel))
-  (loop for (nil . load-instructions) in (kernel-sources kernel) do
-    (loop for load-instruction in load-instructions do
-      (funcall function load-instruction)))
-  kernel)
-
 (declaim (inline map-kernel-inputs))
 (defun map-kernel-inputs (function kernel)
   (declare (function function)
@@ -283,10 +376,27 @@
 (defun map-kernel-outputs (function kernel)
   (declare (function function)
            (kernel kernel))
-  (map-kernel-store-instructions
-   (lambda (store-instruction)
-     (funcall function (store-instruction-buffer store-instruction)))
-   kernel))
+  (loop for (buffer . nil) in (kernel-targets kernel) do
+    (funcall function buffer))
+  kernel)
+
+(declaim (inline map-kernel-load-instructions))
+(defun map-kernel-load-instructions (function kernel)
+  (declare (function function)
+           (kernel kernel))
+  (loop for (nil . load-instructions) in (kernel-sources kernel) do
+    (loop for load-instruction in load-instructions do
+      (funcall function load-instruction)))
+  kernel)
+
+(declaim (inline map-kernel-store-instructions))
+(defun map-kernel-store-instructions (function kernel)
+  (declare (function function)
+           (kernel kernel))
+  (loop for (nil . store-instructions) in (kernel-targets kernel) do
+    (loop for store-instruction in store-instructions do
+      (funcall function store-instruction)))
+  kernel)
 
 (declaim (inline map-instruction-inputs))
 (defun map-instruction-inputs (function instruction)
@@ -296,16 +406,12 @@
     (funcall function input)))
 
 (defun map-buffers-and-kernels (buffer-fn kernel-fn root-buffers)
-  (let ((table (make-hash-table :test #'eq)))
-    (labels ((process-buffer (buffer)
-               (unless (gethash buffer table)
-                 (setf (gethash buffer table) t)
-                 (funcall buffer-fn buffer)
-                 (map-buffer-inputs #'process-kernel buffer)))
-             (process-kernel (kernel)
-               (funcall kernel-fn kernel)
-               (map-kernel-inputs #'process-buffer kernel)))
-      (mapc #'process-buffer root-buffers))))
+  (unless (null root-buffers)
+    (map-program-tasks
+     (lambda (task)
+       (map-task-defined-buffers buffer-fn task)
+       (map-task-kernels kernel-fn task))
+     (task-program (buffer-task (first root-buffers))))))
 
 (defun map-buffers (function root-buffers)
   (map-buffers-and-kernels function #'identity root-buffers))
@@ -313,10 +419,39 @@
 (defun map-kernels (function root-buffers)
   (map-buffers-and-kernels #'identity function root-buffers))
 
-(defun map-instructions (function kernel)
+(declaim (inline map-kernel-instructions))
+(defun map-kernel-instructions (function kernel)
   (let ((vector (kernel-instruction-vector kernel)))
     (declare (simple-vector vector))
     (map nil function vector)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Do Macros
+
+(macrolet ((def (name var thing mapper)
+             `(defmacro ,name ((,var ,thing &optional result) &body body)
+                (check-type ,var symbol)
+                `(block nil
+                   (,',mapper (lambda (,,var) ,@body) ,,thing)
+                   ,result))))
+  (def do-program-tasks task program map-program-tasks)
+  (def do-task-successors successor task map-task-successors)
+  (def do-task-predecessors predecessor task map-task-predecessors)
+  (def do-task-kernels kernel task map-task-kernels)
+  (def do-task-defined-buffers defined-buffer task map-task-defined-buffers)
+  (def do-program-buffers buffer program map-program-buffers)
+  (def do-program-kernels kernel program map-program-kernels)
+  (def do-buffer-inputs kernel buffer map-buffer-inputs)
+  (def do-buffer-outputs kernel buffer map-buffer-outputs)
+  (def do-buffer-load-instructions load-instruction buffer map-buffer-load-instructions)
+  (def do-buffer-store-instructions store-instruction buffer map-buffer-store-instructions)
+  (def do-kernel-inputs buffer kernel map-kernel-inputs)
+  (def do-kernel-outputs buffer kernel map-kernel-outputs)
+  (def do-kernel-load-instructions load-instruction kernel map-kernel-load-instructions)
+  (def do-kernel-store-instructions store-instruction kernel map-kernel-store-instructions)
+  (def do-instruction-inputs input instruction map-instruction-inputs)
+  (def do-kernel-instructions instruction kernel map-kernel-instructions))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -368,7 +503,7 @@
     (setf (kernel-iteration-space kernel)
           (transform-shape (kernel-iteration-space kernel) transformation))
     (let ((inverse (invert-transformation transformation)))
-      (map-instructions
+      (map-kernel-instructions
        (lambda (instruction)
          (transform-instruction-input instruction inverse))
        kernel))))
@@ -376,6 +511,22 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Miscellaneous
+
+(defun program-buffer (program buffer-number)
+  (do-program-buffers (buffer program)
+    (when (= (buffer-number buffer) buffer-number)
+      (return-from program-buffer buffer)))
+  (error "No buffer with number ~D in program ~S."
+         buffer-number
+         program))
+
+(defun program-kernel (program kernel-number)
+  (do-program-kernels (kernel program)
+    (when (= (kernel-number kernel) kernel-number)
+      (return-from program-kernel kernel)))
+  (error "No kernel with number ~D in program ~S."
+         kernel-number
+         program))
 
 (declaim (inline count-mapped-elements))
 (defun count-mapped-elements (map-fn what)
@@ -434,17 +585,11 @@
      kernel)
     max))
 
-(defun kernel-buffers (kernel)
-  (let ((buffers '()))
-    (map-kernel-load-instructions
-     (lambda (load-instruction)
-       (pushnew (load-instruction-buffer load-instruction) buffers))
-     kernel)
-    (map-kernel-store-instructions
-     (lambda (store-instruction)
-       (pushnew (store-instruction-buffer store-instruction) buffers))
-     kernel)
-    (nreverse buffers)))
+;;; This function is a very ad-hoc approximation of the cost of executing
+;;; the kernel.
+(defun kernel-cost (kernel)
+  (max 1 (* (shape-size (kernel-iteration-space kernel))
+            (kernel-highest-instruction-number kernel))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;

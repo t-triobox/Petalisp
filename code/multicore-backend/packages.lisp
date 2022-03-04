@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
@@ -6,5 +6,12 @@
   (:use
    #:common-lisp
    #:petalisp.core)
+  (:shadow
+   #:make-request
+   #:request
+   #:requestp
+   #:request-backend
+   #:request-lazy-arrays
+   #:request-wait)
   (:export
    #:make-multicore-backend))

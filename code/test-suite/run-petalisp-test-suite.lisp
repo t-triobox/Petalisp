@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.test-suite)
 
@@ -12,6 +12,7 @@
   (print-system-statistics "petalisp.ir")
   (print-system-statistics "petalisp.native-backend")
   (print-system-statistics "petalisp.multicore-backend")
+  (print-system-statistics "petalisp.xmas-backend")
   (print-system-statistics "petalisp.api")
   (print-package-statistics :petalisp)
   (with-testing-backend

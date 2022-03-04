@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.core)
 
@@ -39,7 +39,7 @@
   (assert (< axis (shape-rank shape)))
   (nth axis (shape-ranges shape)))
 
-(defun shape-equal (shape1 shape2)
+(defun shape= (shape1 shape2)
   (declare (shape shape1 shape2))
   (and (= (shape-rank shape1)
           (shape-rank shape2))
@@ -49,6 +49,17 @@
            (every #'range-equal
                   (shape-ranges shape1)
                   (shape-ranges shape2)))))
+
+(defun shape< (shape1 shape2)
+  (declare (shape shape1 shape2))
+  (or (< (shape-size shape1)
+         (shape-size shape2))
+      (< (shape-rank shape1)
+         (shape-rank shape2))
+      (loop for range1 in (shape-ranges shape1)
+            for range2 in (shape-ranges shape2)
+              thereis (< (range-size range1)
+                         (range-size range2)))))
 
 (defun shape-intersection (shape1 shape2)
   (declare (shape shape1 shape2))

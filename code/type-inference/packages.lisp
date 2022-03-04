@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
@@ -30,9 +30,10 @@
    ;; Ntype manipulation.
    #:*ntypes*
    #:ntype
-   #:ntype-size
+   #:ntype-bits
    #:ntype-id
    #:ntype=
+   #:ntype<
    #:type-specifier
    #:ntype-of
    #:generalize-ntype

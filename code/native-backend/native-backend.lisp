@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.native-backend)
 
@@ -38,18 +38,6 @@
                    (loop-finish))))
            :name (format nil "~A scheduler thread"
                          (class-name (class-of native-backend)))))))
-
-(defmethod backend-schedule
-    ((backend native-backend)
-     (lazy-arrays list)
-     (finalizer function))
-  (let ((promise (lparallel.promise:promise)))
-    (lparallel.queue:push-queue
-     (lambda ()
-       (lparallel.promise:fulfill promise
-         (funcall finalizer (backend-compute backend lazy-arrays))))
-     (scheduler-queue backend))
-    promise))
 
 (defmethod backend-wait
     ((backend native-backend)

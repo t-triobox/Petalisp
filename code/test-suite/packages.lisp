@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
@@ -18,4 +18,5 @@
    #:signals
    #:all-tests
    #:check-package
-   #:run-tests))
+   #:run-tests
+   #:run-petalisp-test-suite))

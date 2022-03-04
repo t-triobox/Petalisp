@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.type-inference)
 
@@ -20,12 +20,17 @@
 (defun generalize-ntype (ntype)
   (if (%ntypep ntype)
       ntype
-      (macrolet ((body ()
-                   `(typecase ntype
-                      ,@(loop for ntype across *ntypes*
-                              collect
-                              `(,(%ntype-type-specifier ntype) ',ntype)))))
-        (body))))
+      (the (values ntype &optional)
+           (%generalize-ntype ntype))))
+
+(defun %generalize-ntype (ntype)
+  (macrolet ((body ()
+               `(typecase ntype
+                  ,@(loop for ntype across *ntypes*
+                          collect
+                          `(,(%ntype-type-specifier ntype) ',ntype)))))
+    (body)))
+
 
 (let ((id-limit (1+ (loop for ntype across *ntypes*
                           maximize (%ntype-id ntype)))))

@@ -1,4 +1,4 @@
-;;;; © 2016-2021 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
@@ -52,7 +52,8 @@
    #:shape-ranges
    #:shape-dimensions
    #:shape-size
-   #:shape-equal
+   #:shape=
+   #:shape<
    #:shape-difference-list
    #:shape-intersection
    #:shape-intersectionp
@@ -71,6 +72,7 @@
    #:remove-shape-table-entry
    #:clear-shape-table
    #:array-shape
+   #:array-value
    #:shape-designator-shape
 
    ;; Transformations
@@ -91,7 +93,7 @@
    #:make-transformation
    #:identity-transformation
    #:invert-transformation
-   #:transformation-equal
+   #:transformation=
    #:transformation-similar
    #:compose-transformations
    #:collapsing-transformation
@@ -101,6 +103,7 @@
    #:map-transformation-outputs
 
    ;; Lazy Arrays
+   #:*lazy-array-lock*
    #:lazy-array
    #:lazy-array-p
    #:lazy-array-shape
@@ -121,8 +124,7 @@
    #:lazy-fuse
    #:lazy-collapse
    #:make-unknown
-   #:lazy-thunks-and-unknowns
-   #:force-lazy-thunk
+   #:lazy-unknowns
    #:empty-lazy-array
    #:empty-lazy-arrays
    #:move-axis-to-front
@@ -161,28 +163,45 @@
    #:delayed-fuse-inputs
    #:delayed-range
    #:delayed-range-p
+   #:make-delayed-array
    #:delayed-array
    #:delayed-array-p
    #:delayed-array-storage
-   #:delayed-thunk
-   #:delayed-thunk-p
-   #:delayed-thunk-thunk
    #:delayed-unknown
    #:delayed-unknown-p
    #:delayed-nop
    #:delayed-nop-p
+   #:delayed-wait
+   #:delayed-wait-p
+   #:delayed-wait-request
+   #:delayed-wait-delayed-action
+   #:delayed-failure
+   #:delayed-failure-p
+   #:delayed-failure-condition
+
+   ;; Request
+   #:request
+   #:make-request
+   #:requestp
+   #:request-backend
+   #:request-lazy-arrays
+   #:request-wait
+   #:request-finish
+   #:request-finishedp
 
    ;; Backend
    #:*backend*
    #:with-backend
    #:backend
+   #:delete-backend
    #:backend-compute
    #:backend-schedule
-   #:backend-wait
-   #:delete-backend
-   #:make-reference-backend
+   #:backend-evaluator
    #:compute
    #:compute-list-of-arrays
    #:schedule
-   #:schedule-list-of-arrays
-   #:wait))
+   #:wait
+   #:evaluator
+
+   ;; Reference Backend
+   #:make-reference-backend))
