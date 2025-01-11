@@ -1,22 +1,28 @@
-;;;; Note: This file is not intended to be LOADed from Lisp, but to be
-;;;; executed expression by expression.
+;;;; Note: This file is not intended to be loaded directly from Lisp, but
+;;;; to be executed expression by expression.  If you are using Emacs, you
+;;;; can simply press C-c C-c while your cursor is hovering over an
+;;;; expression.
 
+;;; Load Petalisp and run its test suite:
 (asdf:test-system :petalisp)
 
+;;; Define and use a package for all the remaining examples:
 (defpackage #:petalisp.examples.getting-started
   (:use #:common-lisp #:petalisp))
 
 (in-package #:petalisp.examples.getting-started)
 
+;;; A function that prints both inputs and outputs:
 (defun present (&rest arrays)
-  (format t "~{~& => ~A~}" (compute-list-of-arrays arrays)))
+  (format t "~{~& => ~A~}" (multiple-value-list (apply #'compute arrays))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Petalisp Basics
+;;; Lazy Map
 
 (present
- (lazy-reshape 0 (~))) ; the empty space
+ (lazy-reshape 0 (~*))) ; the empty space
 
 (defun zeros (shape)
   (lazy-reshape 0 shape))
@@ -25,14 +31,14 @@
  (zeros (~ 10))) ; ten zeros
 
 (present
- (lazy-array-indices (zeros (~ 10)))) ; the numbers from 0 to 9 (inclusive)
+ (lazy-index-components (zeros (~ 10)))) ; the numbers from 0 to 9 (inclusive)
 
 (present
  (lazy-reshape #2a((1 2 3 4) (5 6 7 8)) (~ 0 2 ~ 1 3))) ; selecting values
 
 (present
  (lazy-reshape #2a((1 2 3 4) (5 6 7 8))
-               (transform i j to j i))) ; transforming
+  (transform i j to j i))) ; transforming
 
 ;; arrays can be merged with fuse
 
@@ -78,8 +84,8 @@
 
 (present
  (lazy-reduce #'+
-    ;; only the axis zero is reduced
-    #2A((1 2 3) (4 5 6))))
+  ;; only the axis zero is reduced
+  #2A((1 2 3) (4 5 6))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -87,9 +93,9 @@
 
 (defun matmul (A B)
   (lazy-reduce #'+
-     (lazy #'*
-        (lazy-reshape A (transform m n to n m 0))
-        (lazy-reshape B (transform n k to n 0 k)))))
+   (lazy #'*
+    (lazy-reshape A (transform m n to n m 0))
+    (lazy-reshape B (transform n k to n 0 k)))))
 
 (defparameter MI #2a((1.0 0.0)
                      (0.0 1.0)))
@@ -119,15 +125,15 @@
 ;;;  Jacobi's Method
 
 (defun jacobi-2d (grid)
-  (let ((interior (lazy-array-interior grid)))
+  (let ((interior (lazy-reshape grid 2 (peeler 1 1))))
     (lazy-overwrite
      grid
      (lazy #'* 1/4
-           (lazy #'+
-                 (lazy-reshape grid (transform i j to (1+ i) j) interior)
-                 (lazy-reshape grid (transform i j to (1- i) j) interior)
-                 (lazy-reshape grid (transform i j to i (1+ j)) interior)
-                 (lazy-reshape grid (transform i j to i (1- j)) interior))))))
+      (lazy #'+
+       (lazy-reshape grid (transform i j to (1+ i) j) interior)
+       (lazy-reshape grid (transform i j to (1- i) j) interior)
+       (lazy-reshape grid (transform i j to i (1+ j)) interior)
+       (lazy-reshape grid (transform i j to i (1- j)) interior))))))
 
 (defparameter domain
   (lazy-overwrite

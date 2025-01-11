@@ -1,4 +1,4 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.utilities)
 
@@ -23,13 +23,15 @@
         (format stream "~&~%Example~P:" (length example-forms))
         (loop for example-form in example-forms
               for example-thunk in example-thunks do
-                (format stream "~&~% ~A~%" example-form)
+                (format stream "~&~% ~S~%" example-form)
                 (handler-case
-                    (format stream "~{  => ~A~%~}"
+                    (format stream "~{  => ~S~%~}"
                             (multiple-value-list
                              (funcall example-thunk)))
                   (error (e)
-                    (format stream "  >> ~A" (class-name (class-of e))))))))))
+                    (error "Evaluation of the example form ~S signaled a ~S."
+                           example-form
+                           (class-name (class-of e))))))))))
 
 (defmacro expand-documentation (form &rest examples)
   `(build-documentation

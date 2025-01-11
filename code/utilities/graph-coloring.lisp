@@ -1,4 +1,4 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.utilities)
 
@@ -79,17 +79,17 @@
               (make-cnode :object object)))))
 
 (defun cgraph-add-conflict (cgraph a b)
-  (if (eq a b)
-      (cgraph-ensure-cnode cgraph a)
-      (let ((a-cnode (cgraph-ensure-cnode cgraph a))
-            (b-cnode (cgraph-ensure-cnode cgraph b)))
-        (unless (member a-cnode (cnode-neighbors b-cnode))
-          (assert (not (member b-cnode (cnode-neighbors b-cnode))))
-          (incf (cnode-degree a-cnode))
-          (incf (cnode-degree b-cnode))
-          (push a-cnode (cnode-neighbors b-cnode))
-          (push b-cnode (cnode-neighbors a-cnode)))
-        (values))))
+  (declare (cgraph cgraph) (cnode a b))
+  (declare (ignore cgraph))
+  ;; Self-edges really don't make sense during graph coloring, because they
+  ;; immediately render the coloring problem unsolvable.
+  (assert (not (eq a b)))
+  (unless (member a (cnode-neighbors b))
+    (incf (cnode-degree a))
+    (incf (cnode-degree b))
+    (push a (cnode-neighbors b))
+    (push b (cnode-neighbors a)))
+  (values))
 
 (defun cgraph-coloring (cgraph)
   "For a supplied conflict graph, returns a vector whose elements are lists

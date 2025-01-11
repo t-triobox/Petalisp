@@ -25,23 +25,23 @@
 (defun relu (x)
   (floatify
    (lazy (lambda (v)
-        (declare (single-float v))
-        (if (plusp v) v 0.0))
-      x)))
+           (declare (single-float v))
+           (if (plusp v) v 0.0))
+    x)))
 
 (defun relu-prime (x)
   (floatify
    (lazy (lambda (v)
-        (declare (single-float v))
-        (if (plusp v) 1.0 0.0))
-      x)))
+           (declare (single-float v))
+           (if (plusp v) 1.0 0.0))
+    x)))
 
 (defun softmax (x)
-  (let* ((max (lazy-reduce #'max (move-axis-to-front x 1)))
+  (let* ((max (lazy-reduce #'max (petalisp.api:move-axis-to-front x 1)))
          (totals (lazy #'exp (lazy #'- x (lazy-reshape max (transform i to i 0))))))
     (lazy #'/ totals
-          (lazy-reshape (lazy-reduce #'+ (move-axis-to-front totals 1))
-                        (transform i to i 0)))))
+     (lazy-reshape (lazy-reduce #'+ (lazy-reshape totals (transform i j to j i)))
+      (transform i to i 0)))))
 
 (defun sigmoid (x)
   (lazy #'/ (lazy #'1+ (lazy #'exp (lazy #'- x)))))
@@ -82,17 +82,19 @@
         ;; Pick a random batch of images and labels.
         (let* ((batch-start (random (- n batch-size)))
                (batch-end (+ batch-start batch-size))
-               (batch (range batch-start batch-end))
                (train-images
                  (compute
-                  (lazy-reshape (lazy-slices *train-images* batch)
-                                (~ batch-size ~ (* w h)))))
+                  (lazy-reshape *train-images*
+                   (slicer (list batch-start batch-end))
+                   (~ batch-size ~ (* w h)))))
                (train-labels
                  (compute
                   (floatify
                    (lazy (lambda (i j) (if (= i j) 1.0 0.0))
-                      (lazy-reshape (lazy-slices *train-labels* batch) (transform i to i 0))
-                      (lazy-shape-indices (~ 10))))))
+                    (lazy-reshape *train-labels*
+                     (slicer (list batch-start batch-end))
+                     (transform i to i 0))
+                    (lazy-index-components (~ 10))))))
                ;; Feed forward
                (a1 (relu (matmul train-images W1)))
                (a2 (relu (matmul a1 W2)))
@@ -120,11 +122,11 @@
                  a1 a2 yhat dyhat))
           (when (zerop (mod i 100))
             (format t "~&------------- Epoch ~4D --------------~%" i)
-            (format t "W3max ~S~%" (compute (lazy-allreduce #'max W3)))
+            (format t "W3max ~S~%" (compute (petalisp.api:lazy-reduce '(max max) W3)))
             #+(or)
             (format t "Predictions:~%~S~%" (compute yhat))
             #+(or)
             (format t "Ground truth:~%~S~%" (compute train-labels))
             (trivial-garbage:gc :full t)
-            (format t "Loss: ~S~%" (compute (lazy-allreduce #'+ (lazy #'* dyhat dyhat))))
+            (format t "Loss: ~S~%" (compute (petalisp.api:lazy-reduce '(+ +) (lazy #'* dyhat dyhat))))
             (format t "~&---------- End of Epoch ~4D ----------~%" i)))))))

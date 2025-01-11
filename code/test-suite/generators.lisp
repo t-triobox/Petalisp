@@ -1,4 +1,4 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.test-suite)
 
@@ -48,8 +48,8 @@
 (defgenerator shape (&key (rank-generator (make-integer-generator :min 0 :max 5))
                           (range-generator (make-range-generator)))
   (lambda ()
-    (~l (loop repeat (funcall rank-generator)
-              collect (funcall range-generator)))))
+    (apply ~* (loop repeat (funcall rank-generator)
+                     collect (funcall range-generator)))))
 
 (defgenerator lazy-array
     (&key (element-type 'single-float)

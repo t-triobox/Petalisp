@@ -7,10 +7,9 @@
   ("asdf"
    "bordeaux-threads"
    "closer-mop"
-   "petalisp"
    "petalisp.examples"
-   "petalisp.graphviz"
-   "petalisp.xmas-backend")
+   "petalisp.api"
+   "petalisp.native-backend")
 
   :perform
   (test-op (o c) (symbol-call '#:petalisp.test-suite '#:run-petalisp-test-suite))
@@ -19,12 +18,11 @@
   :components
   ((:file "packages")
    (:file "test-suite")
-   (:file "code-statistics")
    (:file "testing-backend")
+   (:file "code-statistics")
    (:file "defgenerator")
    (:file "generators")
    (:file "run-petalisp-test-suite")
-   (:file "petalisp.type-inference")
-   (:file "petalisp.utilities")
    (:file "petalisp.core")
+   (:file "petalisp.api")
    (:file "petalisp.examples")))

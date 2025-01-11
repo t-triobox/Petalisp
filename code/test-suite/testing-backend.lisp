@@ -1,4 +1,4 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.test-suite)
 
@@ -12,40 +12,32 @@
    (%ir-backend-compiled
     :reader ir-backend-compiled
     :initform (make-ir-backend :mode :compiled))
-   (%multicore-backend
-    :reader multicore-backend
+   (%native-backend
+    :reader native-backend
     :initform
-    (make-multicore-backend))
-   (%xmas-backend
-    :reader xmas-backend
-    :initform
-    (petalisp.xmas-backend:make-xmas-backend))))
+    (petalisp.native-backend:make-native-backend :debug t))))
 
 (defun make-testing-backend ()
   (make-instance 'testing-backend))
 
-(defmethod backend-compute
+(defmethod petalisp.core:backend-compute
     ((testing-backend testing-backend)
      (data-structures list))
   (with-accessors ((reference-backend reference-backend)
                    (ir-backend-interpreted ir-backend-interpreted)
                    (ir-backend-compiled ir-backend-compiled)
-                   (multicore-backend multicore-backend)
-                   (xmas-backend xmas-backend)) testing-backend
+                   (native-backend native-backend)) testing-backend
     (let ((reference-solutions
-            (backend-compute reference-backend data-structures))
+            (petalisp.core:backend-compute reference-backend data-structures))
           (ir-backend-interpreted-solutions
-            (backend-compute ir-backend-interpreted data-structures))
+            (petalisp.core:backend-compute ir-backend-interpreted data-structures))
           (ir-backend-compiled-solutions
-            (backend-compute ir-backend-compiled data-structures))
-          (multicore-backend-solutions
-            (backend-compute multicore-backend data-structures))
-          (xmas-backend-solutions
-            (backend-compute xmas-backend data-structures)))
+            (petalisp.core:backend-compute ir-backend-compiled data-structures))
+          (native-backend-solutions
+            (petalisp.core:backend-compute native-backend data-structures)))
       (compare-solutions reference-solutions ir-backend-interpreted-solutions)
       (compare-solutions reference-solutions ir-backend-compiled-solutions)
-      (compare-solutions reference-solutions multicore-backend-solutions)
-      (compare-solutions reference-solutions xmas-backend-solutions)
+      (compare-solutions reference-solutions native-backend-solutions)
       reference-solutions)))
 
 (defun compare-solutions (solutions1 solutions2)
@@ -53,11 +45,11 @@
         for solution2 in solutions2 do
           (is (approximately-equal solution1 solution2))))
 
-(defmethod delete-backend ((testing-backend testing-backend))
+(defmethod petalisp.core:delete-backend ((testing-backend testing-backend))
   (delete-backend (reference-backend testing-backend))
   (delete-backend (ir-backend-interpreted testing-backend))
   (delete-backend (ir-backend-compiled testing-backend))
-  (delete-backend (multicore-backend testing-backend))
+  (delete-backend (native-backend testing-backend))
   (call-next-method))
 
 (defun call-with-testing-backend (thunk)
@@ -73,6 +65,13 @@
 ;;; Equality
 
 (defgeneric approximately-equal (a b))
+
+(defmethod approximately-equal
+    ((a petalisp.core:delayed-array)
+     (b petalisp.core:delayed-array))
+  (approximately-equal
+   (petalisp.core:delayed-array-storage a)
+   (petalisp.core:delayed-array-storage b)))
 
 (defmethod approximately-equal ((a t) (b t))
   (eql a b))

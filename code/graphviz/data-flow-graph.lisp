@@ -1,4 +1,4 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.graphviz)
 
@@ -77,7 +77,13 @@
      (node petalisp.core:lazy-array))
   `(("shape" . ,(stringify (petalisp.core:lazy-array-shape node)))
     ("element-type" . ,(stringify (petalisp.core:lazy-array-element-type node)))
+    ("depth" . ,(stringify (petalisp.core:lazy-array-depth node)))
     ,@(graphviz-node-properties graph (petalisp.core:lazy-array-delayed-action node))))
+
+(defmethod graphviz-node-properties append
+    ((graph data-flow-graph)
+     (delayed-nth-value petalisp.core:delayed-nth-value))
+  `(("value-n" . ,(stringify (petalisp.core:delayed-nth-value-number delayed-nth-value)))))
 
 (defmethod graphviz-node-properties append
     ((graph data-flow-graph)
@@ -87,7 +93,9 @@
 (defmethod graphviz-node-properties append
     ((graph data-flow-graph)
      (node petalisp.core:delayed-map))
-  `(("operator" . ,(stringify (petalisp.core:delayed-map-operator node)))))
+  `(("function" . ,(stringify
+                    (typo:fnrecord-function-designator
+                     (petalisp.core:delayed-map-fnrecord node))))))
 
 (defmethod graphviz-node-properties append
     ((graph data-flow-graph)

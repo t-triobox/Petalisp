@@ -1,4 +1,4 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
@@ -15,14 +15,17 @@
   (:export
    ;; IR Conversion
    #:ir-from-lazy-arrays
+   #:program-from-lazy-arrays
 
    ;; Structs
    #:program
    #:task
    #:buffer
    #:kernel
+   #:stencil
    #:instruction
    #:iterating-instruction
+   #:load-or-store-instruction
    #:call-instruction
    #:load-instruction
    #:store-instruction
@@ -36,9 +39,11 @@
    #:root-buffer-p
    #:interior-buffer-p
    #:kernelp
+   #:stencilp
    #:instructionp
    #:call-instruction-p
    #:iterating-instruction-p
+   #:load-or-store-instruction-p
    #:iref-instruction-p
    #:load-instruction-p
    #:store-instruction-p
@@ -48,6 +53,8 @@
    #:make-task
    #:make-kernel
    #:make-buffer
+   #:make-stencil
+   #:stencil-from-instruction
 
    ;; Mapping
    #:map-program-tasks
@@ -68,8 +75,11 @@
    #:map-kernel-load-instructions
    #:map-kernel-inputs
    #:map-kernel-outputs
+   #:map-kernel-stencils
    #:map-kernel-instructions
+   #:map-stencil-instructions
    #:map-instruction-inputs
+   #:map-program-buffer-groups
 
    ;; Do Macros
    #:do-program-tasks
@@ -85,15 +95,19 @@
    #:do-buffer-store-instructions
    #:do-kernel-inputs
    #:do-kernel-outputs
+   #:do-kernel-load-stencils
    #:do-kernel-load-instructions
    #:do-kernel-store-instructions
+   #:do-stencil-instructions
    #:do-instruction-inputs
    #:do-kernel-instructions
+   #:do-program-buffer-groups
 
    ;; Accessors
    #:program-initial-task
    #:program-final-task
    #:program-leaf-alist
+   #:program-root-buffers
    #:program-task-vector
    #:program-number-of-buffers
    #:program-number-of-kernels
@@ -107,7 +121,6 @@
    #:buffer-ntype
    #:buffer-depth
    #:buffer-storage
-   #:buffer-data
    #:buffer-task
    #:buffer-program
    #:buffer-bits
@@ -116,24 +129,43 @@
    #:buffer-number-of-outputs
    #:buffer-number-of-loads
    #:buffer-number-of-stores
+   #:buffer-reuse-potential
    #:kernel-iteration-space
-   #:kernel-blueprint
    #:kernel-instruction-vector
-   #:kernel-number-of-inputs
+   #:kernel-number-of-ienputs
    #:kernel-number-of-outputs
    #:kernel-number-of-loads
    #:kernel-number-of-stores
    #:kernel-cost
-   #:kernel-data
    #:kernel-task
    #:kernel-program
    #:kernel-number
+   #:kernel-reuse-potential
+   #:kernel-load-stencils
+   #:kernel-store-stencils
+   #:kernel-targets
+   #:kernel-sources
+   #:stencil-buffer
+   #:stencil-input-rank
+   #:stencil-output-rank
+   #:stencil-output-mask
+   #:stencil-scalings
+   #:stencil-center
+   #:stencil-instructions
    #:instruction-number
    #:instruction-inputs
    #:instruction-transformation
-   #:call-instruction-operator
+   #:instruction-number-of-values
+   #:iref-instruction-transformation
+   #:call-instruction-fnrecord
+   #:call-instruction-function
+   #:call-instruction-number-of-values
+   #:call-instruction-inputs
    #:store-instruction-buffer
+   #:store-instruction-transformation
+   #:store-instruction-input
    #:load-instruction-buffer
+   #:load-instruction-transformation
 
    ;; Devices, Cores, and Memory
    #:device
@@ -155,8 +187,58 @@
    #:memory-bandwidth
    #:memory-parent-bandwidth
 
+   ;; Partitioning
+   #:layout
+   #:layoutp
+   #:layout-offset
+   #:layout-strides
+   #:layout-ntype
+   #:layout-size
+   #:layout-rank
+   #:layout-ghost-layer-alist
+   #:layout-allocation
+   #:kernel-shard
+   #:kernel-shard-p
+   #:kernel-shard-kernel
+   #:kernel-shard-iteration-space
+   #:kernel-shard-targets
+   #:kernel-shard-sources
+   #:kernel-shard-more-important-p
+   #:buffer-shard
+   #:buffer-shard-p
+   #:buffer-shard-buffer
+   #:buffer-shard-parent
+   #:buffer-shard-domain
+   #:buffer-shard-shape
+   #:buffer-shard-readers
+   #:buffer-shard-writers
+   #:buffer-shard-split
+   #:buffer-shard-bits
+   #:buffer-shard-layout
+   #:buffer-shard-maxdepth
+   #:buffer-shard-path
+   #:buffer-shard-primogenitor
+   #:split
+   #:splitp
+   #:split-parent
+   #:split-axis
+   #:split-position
+   #:split-left-child
+   #:split-right-child
+   #:vicinity
+   #:vicinityp
+   #:vicinity-left-neighbors
+   #:vicinity-right-neighbors
+   #:compute-buffer-shard-vicinity
+   #:partition-program
+
    ;; Miscellaneous
-   #:make-ir-backend
+   #:*stencil-max-radius*
+   #:compute-stencil-center
+   #:make-buffer-like-array
+   #:make-array-from-shape-and-ntype
+   #:ensure-array-buffer-compatibility
+   #:ensure-array-shape-ntype-compatibility
    #:check-ir
-   #:interpret-kernel
-   #:translate-blueprint))
+   #:compute-program-buffer-coloring
+   #:reuse-optimizing-transformation))

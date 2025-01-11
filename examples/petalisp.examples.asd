@@ -4,7 +4,7 @@
   :license "AGPLv3"
 
   :depends-on
-  ("petalisp"
+  ("petalisp.api"
    "numpy-file-format"
    "asdf")
 
@@ -15,12 +15,12 @@
   ((:file "iterative-methods")
    (:file "linear-algebra")
    (:file "wave-equation")
-   (:file "image-processing")
+   (:file "statistics")
    (:module "mnist-data"
     :components
     ((:static-file "test-images.npy")
      (:static-file "test-labels.npy")
      (:static-file "train-images.npy")
      (:static-file "train-labels.npy")))
-   (:file "machine-learning")
+   (:file "multigrid")
    (:file "mnist")))

@@ -1,4 +1,4 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.api)
 
@@ -6,7 +6,7 @@
             (:constructor make-ad-record
                 (lazy-array
                  &aux (input-gradient-caches
-                       (make-array (length (lazy-array-inputs lazy-array))
+                       (make-array (length (petalisp.core:lazy-array-inputs lazy-array))
                                    :initial-element nil))))
             (:copier nil)
             (:predicate nil))
@@ -38,12 +38,12 @@
                (unless (gethash lazy-array table)
                  (setf (gethash lazy-array table)
                        (make-ad-record lazy-array))
-                 (mapc #'ensure-ad-record (lazy-array-inputs lazy-array)))))
+                 (mapc #'ensure-ad-record (petalisp.core:lazy-array-inputs lazy-array)))))
       (mapc #'ensure-ad-record outputs))
     ;; Connect all ad-records.
     (maphash
      (lambda (lazy-array record)
-       (loop for input in (lazy-array-inputs lazy-array)
+       (loop for input in (petalisp.core:lazy-array-inputs lazy-array)
              for input-ad-record = (gethash input table)
              for index from 0 do
                (push (cons index record)
@@ -58,13 +58,13 @@
                      (make-instance 'parameter
                        :name gradient
                        :shape (lazy-array-shape output)
-                       :ntype (lazy-array-ntype output)))
+                       :ntype (petalisp.core:lazy-array-ntype output)))
                     (t
                      (lazy-reshape
                       (lazy 'coerce gradient
-                            (petalisp.type-inference:type-specifier
-                             (petalisp.type-inference:generalize-ntype
-                              (lazy-array-ntype output))))
+                            (typo:ntype-type-specifier
+                             (typo:ntype-primitive-ntype
+                              (petalisp.core:lazy-array-ntype output))))
                       (lazy-array-shape output))))))
     ;; Return the two differentiating closures.
     (labels ((ad-record (lazy-array)
@@ -102,7 +102,7 @@
           (setf (ad-record-output-gradient-cache ad-record)
                 (apply
                  #'lazy-fuse
-                 (loop for (shape . bitmask) in (subdivide-arrays gradients)
+                 (loop for (shape . bitmask) in (petalisp.core:subdivide-arrays gradients)
                        collect
                        (apply
                         #'lazy #'+
@@ -116,7 +116,7 @@
     (if (not (null cached-value))
         cached-value
         (let* ((lazy-array (ad-record-lazy-array ad-record))
-               (delayed-action (lazy-array-delayed-action lazy-array)))
+               (delayed-action (petalisp.core:lazy-array-delayed-action lazy-array)))
           (setf (ad-record-input-gradient-cache ad-record index)
                 (input-gradient
                  lazy-array delayed-action
@@ -124,45 +124,51 @@
                  index))))))
 
 (defun coerce-to-ntype (lazy-array ntype)
-  (if (petalisp.type-inference:ntype= (lazy-array-ntype lazy-array) ntype)
+  (if (typo:ntype= (petalisp.core:lazy-array-ntype lazy-array) ntype)
       lazy-array
-      (lazy #'coerce lazy-array (petalisp.type-inference:type-specifier ntype))))
+      (lazy #'coerce lazy-array (typo:ntype-type-specifier ntype))))
 
 (defgeneric input-gradient (lazy-array delayed-action output-gradient index))
 
 (defmethod input-gradient
     ((lazy-array lazy-array)
-     (delayed-map delayed-map)
+     (delayed-map petalisp.core:delayed-map)
      (output-gradient lazy-array)
      index)
-  (let ((operator (delayed-map-operator delayed-map))
-        (inputs (delayed-map-inputs delayed-map))
+  (let ((fnrecord (petalisp.core:delayed-map-fnrecord delayed-map))
+        (inputs (petalisp.core:delayed-map-inputs delayed-map))
         (shape (lazy-array-shape lazy-array)))
     (coerce-to-ntype
      (lazy #'*
            output-gradient
-           (petalisp.type-inference:differentiate
-            operator
+           (typo:differentiate
+            (typo:fnrecord-function fnrecord)
             inputs
-            #'lazy-array-ntype
+            index
+            :wrapper-ntype #'petalisp.core:lazy-array-ntype
+            :wrap-constant
             (lambda (constant)
               (lazy-reshape constant shape))
-            (lambda (ntypes function inputs)
-              (coerce-to-ntype
-               (apply #'lazy function inputs)
-               (elt ntypes 0)))
-            index))
-     (lazy-array-ntype (nth index inputs)))))
+            :wrap-function
+            (lambda (fnrecord inputs required optional rest)
+              (assert (null optional))
+              (assert (not rest))
+              (trivia:ematch required
+                ((list ntype)
+                 (coerce-to-ntype
+                  (apply #'lazy (typo:fnrecord-function fnrecord) inputs)
+                  ntype))))))
+     (petalisp.core:lazy-array-ntype (nth index inputs)))))
 
 (defmethod input-gradient
     ((lazy-array lazy-array)
-     (delayed-fuse delayed-fuse)
+     (delayed-fuse petalisp.core:delayed-fuse)
      (output-gradient lazy-array)
      index)
-  (let ((input (nth index (delayed-fuse-inputs delayed-fuse))))
+  (let ((input (nth index (petalisp.core:delayed-fuse-inputs delayed-fuse))))
     (coerce-to-ntype
      (lazy-reshape output-gradient (lazy-array-shape input))
-     (lazy-array-ntype input))))
+     (petalisp.core:lazy-array-ntype input))))
 
 (defun move-axis-to-front (array axis)
   (let* ((lazy-array (lazy-array array))
@@ -182,10 +188,10 @@
 
 (defmethod input-gradient
     ((lazy-array lazy-array)
-     (delayed-reshape delayed-reshape)
+     (delayed-reshape petalisp.core:delayed-reshape)
      (output-gradient lazy-array)
      (index (eql 0)))
-  (let ((transformation (delayed-reshape-transformation delayed-reshape)))
+  (let ((transformation (petalisp.core:delayed-reshape-transformation delayed-reshape)))
     (if (transformation-invertiblep transformation)
         (lazy-reshape output-gradient transformation)
         ;; The input gradient of a broadcasting reference is the sum of all

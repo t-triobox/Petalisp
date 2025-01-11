@@ -4,7 +4,6 @@
 
   :depends-on
   ("alexandria"
-   "atomics"
    "bordeaux-threads"
    "queues.priority-queue"
    "trivia"
@@ -14,20 +13,13 @@
   :components
   ((:file "packages")
    (:file "documentation")
-   (:file "defalias")
-   (:file "queue")
-   (:file "circular-array")
-   #+(or)
-   (:file "wsdeque-sbcl" :if-feature :sbcl)
-   (:file "wsdeque")
-   (:file "bitfield")
-   (:file "identical")
-   (:file "memoization")
+   (:file "cqueue")
    (:file "extended-euclid")
+   (:file "powers-of-two")
    (:file "prime-factors")
-   (:file "weak-set")
    (:file "with-collectors")
    (:file "number-of-cpus")
-   (:file "topological-sort")
    (:file "graph-coloring")
-   (:file "karmarkar-karp")))
+   (:file "karmarkar-karp")
+   (:file "scheduling")
+   (:file "with-pinned-objects")))

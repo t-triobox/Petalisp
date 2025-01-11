@@ -1,4 +1,4 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.core)
 
@@ -6,13 +6,15 @@
             (:constructor nil)
             (:predicate rangep)
             (:copier nil))
+  "A range denotes a possibly empty set of integers."
   (size nil :type (integer 0 *) :read-only t))
 
 (defstruct (empty-range
             (:include range)
-            (:constructor make-empty-range (&aux (size 0)))
+            (:constructor %make-empty-range (&aux (size 0)))
             (:predicate empty-range-p)
-            (:copier nil)))
+            (:copier nil))
+  "An empty range is a range with zero elements.")
 
 (defstruct (non-empty-range
             (:include range)
@@ -20,8 +22,18 @@
             (:constructor make-non-empty-range (start step size))
             (:predicate non-empty-range-p)
             (:copier nil))
+  "A non-empty range denotes a set of integers, starting from a lower bound START,
+by a fixed stride STEP, to an exclusive upper bound END."
   (step nil :type (integer 1 *) :read-only t)
   (start nil :type integer :read-only t))
+
+(defun range-emptyp (range)
+  (declare (range range))
+  (empty-range-p range))
+
+(defun empty-range ()
+  (load-time-value
+   (%make-empty-range)))
 
 (declaim (inline range-last))
 (defun range-last (range)
@@ -36,8 +48,10 @@
   (1+ (range-last range)))
 
 (defmethod print-object ((empty-range empty-range) stream)
-  (print-unreadable-object (empty-range stream :identity t)
-    (write (class-name (class-of empty-range)) :stream stream)))
+  (print-unreadable-object (empty-range stream)
+    (write 'range :stream stream)
+    (write-char #\space stream)
+    (format stream "{}")))
 
 (defmethod print-object ((range non-empty-range) stream)
   (with-accessors ((start range-start)
@@ -48,50 +62,52 @@
         (call-next-method)
         (print-unreadable-object (range stream)
           (write 'range :stream stream)
+          (write-char #\space stream)
           (cond ((= size 1)
-                 (format stream "(~D)" start))
+                 (format stream "{~D}" start))
                 ((= size 2)
-                 (format stream "(~D ~D)" start last))
+                 (format stream "{~D ~D}" start last))
                 ((= size 3)
-                 (format stream "(~D ~D ~D)" start (+ start step) last))
+                 (format stream "{~D ~D ~D}" start (+ start step) last))
                 ((= size 4)
-                 (format stream "(~D ~D ~D ~D)" start (+ start step) (+ start step step) last))
+                 (format stream "{~D ~D ~D ~D}" start (+ start step) (+ start step step) last))
                 ((= step 1)
-                 (format stream "(~D ... ~D)" start last))
+                 (format stream "{~D ... ~D}" start last))
                 (t
-                 (format stream "(~D ~D ... ~D)" start (+ start step) last)))))))
+                 (format stream "{~D ~D ... ~D}" start (+ start step) last)))))))
 
-(defun split-range (range)
-  (declare (non-empty-range range))
-  (assert (< 1 (range-size range)))
-  (with-accessors ((start range-start)
-                   (step range-step)
-                   (size range-size)) range
-    (let* ((size1 (ceiling size 2))
-           (size2 (- size size1)))
-      (values
-       (make-non-empty-range start step size1)
-       (make-non-empty-range (+ start (* size1 step)) step size2)))))
+(defun split-range (range &optional position)
+  (declare (range range))
+  (if (empty-range-p range)
+      (values (empty-range) (empty-range))
+      (with-accessors ((start range-start)
+                       (step range-step)
+                       (size range-size)
+                       (end range-end)) range
+        (let* ((mid (if (not position)
+                        (+ start (* step (ceiling size 2)))
+                        (if (<= start position end)
+                            (+ start (* step (ceiling (- position start) step)))
+                            (error "Invalid split position: ~D" position)))))
+          (values
+           (make-range start mid step)
+           (make-range mid end step))))))
 
-(defun make-range (start end step &aux (step (abs step)))
+(defun make-range (start end step)
   (declare (integer start end step))
-  (if (= start end)
-      (make-empty-range)
-      (let ((delta (if (< start end)
-                       (- end start 1)
-                       (- start end 1))))
-        (if (zerop step)
-            (if (zerop delta)
-                (make-non-empty-range start 1 1)
-                (error "~@<Bad step size 0 for range with start ~d and end ~d~:@>"
-                       start end))
-            (let ((n (truncate delta step)))
-              (if (zerop n)
-                  (make-non-empty-range start 1 1)
-                  (make-non-empty-range
-                   (min start (+ start (* n step)))
-                   step
-                   (1+ (abs n)))))))))
+  (when (zerop step)
+    (error "~@<Bad step size 0 for range with start ~d and end ~d~:@>"
+           start end))
+  (let* ((direction (signum step))
+         (size (truncate (- (+ end step) start direction) step)))
+    (cond ((<= size 0)
+           (empty-range))
+          ((= size 1)
+           (make-non-empty-range start 1 1))
+          ((> size 1)
+           (if (plusp direction)
+               (make-non-empty-range start step size)
+               (make-non-empty-range (+ start (* step (1- size))) (- step) size))))))
 
 (defun range (first &optional (end nil endp) (step 1))
   (if (not endp)
@@ -112,13 +128,13 @@
           ((list start end step) (values start end step))
           ((list start end) (values start end 1))
           ((list length) (values 0 length 1)))
-      `(trivia:guard1 ,it (non-empty-range-p ,it)
+      `(trivia:guard1 ,it (rangep ,it)
                       (range-start ,it) ,start
                       (range-end ,it) ,end
                       (range-step ,it) ,step))))
 
-(declaim (inline size-one-range-p))
-(defun size-one-range-p (range)
+(declaim (inline range-with-size-one-p))
+(defun range-with-size-one-p (range)
   (declare (range range))
   (= 1 (range-size range)))
 
@@ -130,7 +146,7 @@
           by (range-step range)
             below (range-end range) do
               (funcall function element)))
-  range)
+  nil)
 
 (declaim (inline range-contains))
 (defun range-contains (range integer)
@@ -142,7 +158,7 @@
            (zerop (rem (- integer (range-start range))
                        (range-step range))))))
 
-(defun range-equal (range1 range2)
+(defun range= (range1 range2)
   (declare (range range1 range2))
   (if (empty-range-p range1)
       (empty-range-p range2)
@@ -177,7 +193,7 @@
             ;; now either a multiple of step1, or one, if range2 has only a
             ;; single element.
             (cond
-              ((size-one-range-p range2)
+              ((range-with-size-one-p range2)
                ;; First, we pick off the special case where range2 has
                ;; only a single element.
                (range-difference-list--single range1 start2))
@@ -257,7 +273,7 @@
                    (step range-step)
                    (last range-last)
                    (end range-end)) range
-    (cond ((size-one-range-p range)
+    (cond ((range-with-size-one-p range)
            '())
           ((= index start)
            ;; Remove the first element.
@@ -287,7 +303,7 @@
   (multiple-value-bind (start end step)
       (range-intersection-start-end-step range1 range2)
     (if (not start)
-        (make-empty-range)
+        (empty-range)
         (range start end step))))
 
 (defun range-intersection-start-end-step (range1 range2)
@@ -296,23 +312,23 @@
           (empty-range-p range2))
       (values nil nil nil)
       (let ((lb (max (range-start range1) (range-start range2)))
-            (ub (min (range-last range1) (range-last range2))))
-        (let ((a (range-step range1))
-              (b (range-step range2))
-              (c (- (range-start range2) (range-start range1))))
-          (multiple-value-bind (s gcd)
-              (petalisp.utilities:extended-euclid a b)
-            (let ((c/gcd (/ c gcd)))
-              (if (not (integerp c/gcd))
-                  (values nil nil nil)
-                  (let ((x (+ (* s c/gcd a)
-                              (range-start range1)))
-                        (lcm (/ (* a b) gcd)))
-                    (let ((start (+ x (* lcm (ceiling (- lb x) lcm))))
-                          (last  (+ x (* lcm (floor   (- ub x) lcm)))))
-                      (if (<= lb start last ub)
-                          (values start (1+ last) lcm)
-                          (values nil nil nil)))))))))))
+            (ub (min (range-last range1) (range-last range2)))
+            (a1 (range-start range1))
+            (a2 (range-start range2))
+            (s1 (range-step range1))
+            (s2 (range-step range2)))
+        (multiple-value-bind (u1 gcd)
+            (petalisp.utilities:extended-euclid s1 s2)
+          (let ((delta/gcd (/ (- a2 a1) gcd)))
+            (if (not (integerp delta/gcd))
+                (values nil nil nil)
+                (let ((x (+ a1 (* u1 s1 delta/gcd)))
+                      (lcm (/ (* s1 s2) gcd)))
+                  (let ((start (+ x (* lcm (ceiling (- lb x) lcm))))
+                        (last  (+ x (* lcm (floor   (- ub x) lcm)))))
+                    (if (<= lb start last ub)
+                        (values start (1+ last) lcm)
+                        (values nil nil nil))))))))))
 
 (defun range-intersectionp (range1 range2)
   (declare (range range1 range2))
@@ -322,7 +338,7 @@
   (declare (range range1 range2))
   (cond ((empty-range-p range1)
          t)
-        ((size-one-range-p range1)
+        ((range-with-size-one-p range1)
          (range-contains range2 (range-start range1)))
         (t
          (with-accessors ((start range-start)
@@ -332,25 +348,29 @@
                 (range-contains range2 last)
                 (range-contains range2 (+ start step)))))))
 
-(defun fuse-ranges (&rest ranges)
+(defun superimpose-ranges (ranges)
+  "Returns a range that covers all the supplied ranges."
+  (declare (list ranges))
   (let ((start nil)
-        (end nil))
-    (loop for range in ranges
-          unless (empty-range-p range)
-            do (cond
-                 ((null start)
-                  (setf start (range-start range))
-                  (setf end (range-end range)))
-                 (t
-                  (setf start (min start (range-start range)))
-                  (setf end (max end (range-end range))))))
-    (if (null start)
-        (make-empty-range)
-        (let ((step (- end start 1)))
-          (loop for range in ranges
-                unless (empty-range-p range)
-                  do (let ((delta (- (range-start range) start)))
-                       (if (size-one-range-p range)
-                           (setf step (gcd step delta))
-                           (setf step (gcd step delta (range-step range))))))
-          (range start end step)))))
+        (last nil))
+    (loop for range in ranges unless (range-emptyp range) do
+      (cond
+        ((null start)
+         (setf start (range-start range))
+         (setf last (range-last range)))
+        (t
+         (setf start (min start (range-start range)))
+         (setf last (max last (range-last range))))))
+    (cond ((null start)
+           (empty-range))
+          ((= start last)
+           (range start (1+ start)))
+          (t
+           (let ((step (- last start)))
+             (loop for range in ranges
+                   unless (range-emptyp range)
+                     do (let ((delta (- (range-start range) start)))
+                          (if (range-with-size-one-p range)
+                              (setf step (gcd step delta))
+                              (setf step (gcd step delta (range-step range))))))
+             (range start (1+ last) step))))))

@@ -1,13 +1,10 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
 (defpackage #:petalisp.api
-  (:nicknames #:petalisp)
 
-  (:use
-   #:common-lisp
-   #:petalisp.core)
+  (:use #:common-lisp #:petalisp)
 
   (:import-from
    #:petalisp.utilities
@@ -19,49 +16,32 @@
    #:document-structure
    #:document-type
    #:document-variable
-   #:document-variables
-   #:defalias)
+   #:document-variables)
 
   (:export
 
    ;; High-level API
-   #:lazy-array-indices
-   #:lazy-array-interior
-   #:lazy-broadcast-to
-   #:lazy-broadcast-arrays
-   #:lazy-broadcast-list-of-arrays
-   #:lazy-collapse
-   #:lazy-drop-axes
-   #:lazy-flatten
+   #:broadcast
    #:lazy-fuse
    #:lazy
    #:lazy-multiple-value
    #:lazy-overwrite
    #:lazy-reduce
-   #:lazy-allreduce
    #:lazy-reshape
-   #:lazy-shape-indices
-   #:lazy-slice
-   #:lazy-slices
+   #:lazy-index-components
+   #:lazy-rearrange
+   #:lazy-sort
    #:lazy-stack
-   #:~
-   #:~l
-   #:~s
-   #:~r
    #:transform
    #:to
-   #:transform-sequence
+   #:transform-index
    #:transform-shape
    #:transform-axis
-   #:transform-lazy-array
    #:compute
    #:compute-list-of-arrays
-   #:schedule
-   #:schedule-list-of-arrays
+   #:compute-asynchronously
    #:wait
-   #:prepare
-   #:prepare-list-of-arrays
-   #:vectorize
+   #:completedp
    #:evaluator
 
    ;; Backends
@@ -70,18 +50,18 @@
    #:make-reference-backend
    #:make-ir-backend
    #:make-native-backend
-   #:make-multicore-backend
 
    ;; Re-exports from petalisp.core
 
    ;; Ranges
    #:range
    #:rangep
-   #:make-range
-   #:size-one-range-p
+   #:range-emptyp
+   #:empty-range
+   #:range-with-size-one-p
    #:split-range
    #:map-range
-   #:range-equal
+   #:range=
    #:range-contains
    #:range-intersection
    #:range-intersectionp
@@ -93,46 +73,62 @@
    #:range-size
 
    ;; Shapes
+   #:~
+   #:~*
+   #:make-shape
    #:shape
    #:shapep
+   #:shape-emptyp
    #:shape-rank
+   #:shape-range
    #:shape-ranges
    #:shape-size
    #:shape=
+   #:shape<
    #:shape-difference-list
    #:shape-intersection
    #:shape-intersectionp
+   #:shape-dimension
    #:shape-dimensions
-   #:shape-interior
    #:map-shape
    #:shape-contains
    #:shrink-shape
+   #:split-shape
    #:enlarge-shape
-   #:shape-union
+   #:shape-subseq
+   #:shape-prefix
+   #:shape-suffix
+   #:subshapep
+   #:fuse-shapes
    #:subdivide-arrays
    #:subdivide-shapes
    #:array-shape
-   #:define-shape-syntax
    #:shape-table
    #:shape-table-p
    #:make-shape-table
    #:shape-table-value
    #:remove-shape-table-entry
    #:clear-shape-table
+   #:shape-designator-shape
 
    ;; Transformations
    #:transformation
    #:transformationp
    #:identity-transformation-p
-   #:input-rank
-   #:output-rank
+   #:transformation-input-rank
+   #:transformation-output-rank
+   #:transformation-input-mask
+   #:transformation-output-mask
+   #:transformation-scalings
+   #:transformation-offsets
    #:transformation-invertiblep
+   #:transformation-identityp
    #:make-transformation
    #:identity-transformation
    #:invert-transformation
    #:transformation=
    #:compose-transformations
-   #:collapsing-transformation
+   #:deflating-transformation
    #:enlarge-transformation
    #:map-transformation-outputs
 
@@ -142,26 +138,37 @@
    #:lazy-array-shape
    #:lazy-array-element-type
    #:lazy-array-rank
+   #:lazy-array-range
+   #:lazy-array-ranges
    #:lazy-array-size
+   #:lazy-array-dimension
+   #:lazy-array-dimensions
    #:make-unknown
 
-   ;; Network
-   #:network
-   #:network-parameters
-   #:network-outputs
-   #:make-network
-   #:call-network
+   ;; Automatic Differentiation
    #:differentiator
+
+   ;; Reshapers
+   #:deflater
+   #:peeler
+   #:slicer
+
+   ;; Harmonization
+   #:harmonized-element-type
+   #:harmonize
+   #:lazy-fuse-and-harmonize
+   #:lazy-overwrite-and-harmonize
 
    ;; Utilities
    #:move-axis-to-front
-   )
+   #:with-lazy-arrays)
 
-  (:shadowing-import-from :petalisp.ir #:make-ir-backend)
-  (:shadowing-import-from :petalisp.native-backend #:make-native-backend)
-  (:shadowing-import-from :petalisp.multicore-backend #:make-multicore-backend)
-  (:shadowing-import-from :petalisp.xmas-backend #:make-xmas-backend))
+  (:shadowing-import-from :petalisp.codegen #:make-ir-backend)
+  (:shadowing-import-from :petalisp.native-backend #:make-native-backend))
+
+(defpackage #:petalisp-user
+  (:use #:common-lisp #:petalisp))
 
 (in-package #:petalisp.api)
 
-(defvar *backend* (make-xmas-backend))
+(defvar *backend* (make-native-backend))

@@ -1,9 +1,9 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (cl:in-package #:common-lisp-user)
 
 (defpackage #:petalisp.core
-  (:use #:common-lisp)
+  (:use #:common-lisp #:petalisp)
 
   (:import-from
    #:petalisp.utilities
@@ -17,19 +17,19 @@
    #:document-variable
    #:document-variables)
 
+  ;; Ranges
   (:export
-
-   ;; Ranges
    #:range
    #:rangep
+   #:range-emptyp
+   #:range-with-size-one-p
    #:empty-range
    #:empty-range-p
    #:non-empty-range
    #:non-empty-range-p
-   #:size-one-range-p
    #:split-range
    #:map-range
-   #:range-equal
+   #:range=
    #:range-contains
    #:range-intersection
    #:range-intersectionp
@@ -40,16 +40,21 @@
    #:range-end
    #:range-size
    #:subrangep
-   #:fuse-ranges
+   #:superimpose-ranges)
 
-   ;; Shapes
+  ;; Shapes
+  (:export
+   #:rank
+   #:axis
    #:shape
    #:shapep
+   #:shape-emptyp
+   #:shape-with-size-one-p
    #:make-shape
-   #:empty-shape-p
    #:shape-rank
    #:shape-range
    #:shape-ranges
+   #:shape-dimension
    #:shape-dimensions
    #:shape-size
    #:shape=
@@ -61,10 +66,16 @@
    #:shape-contains
    #:shrink-shape
    #:enlarge-shape
+   #:inflate-shape
    #:subdivide-arrays
    #:subdivide-shapes
+   #:shape-subseq
+   #:shape-prefix
+   #:shape-suffix
    #:subshapep
+   #:split-shape
    #:fuse-shapes
+   #:superimpose-shapes
    #:shape-table
    #:shape-table-p
    #:make-shape-table
@@ -72,16 +83,16 @@
    #:remove-shape-table-entry
    #:clear-shape-table
    #:array-shape
-   #:array-value
-   #:shape-designator-shape
+   #:array-has-shape-p
+   #:shape-designator-shape)
 
-   ;; Transformations
+  ;; Transformations
+  (:export
    #:transformation
    #:transformationp
-   #:transform-sequence
+   #:transform-index
    #:transform-shape
    #:transform-axis
-   #:transform-lazy-array
    #:identity-transformation-p
    #:transformation-input-rank
    #:transformation-output-rank
@@ -90,19 +101,28 @@
    #:transformation-offsets
    #:transformation-scalings
    #:transformation-invertiblep
+   #:transformation-identityp
    #:make-transformation
    #:identity-transformation
    #:invert-transformation
    #:transformation=
    #:transformation-similar
    #:compose-transformations
-   #:collapsing-transformation
+   #:deflating-transformation
    #:normalizing-transformation
    #:enlarge-transformation
+   #:inflate-transformation
    #:map-transformation-inputs
-   #:map-transformation-outputs
+   #:map-transformation-outputs)
 
-   ;; Lazy Arrays
+  ;; Arrays
+  (:export
+   #:array-value
+   #:value-array
+   #:make-rank-zero-array)
+
+  ;; Lazy Arrays
+  (:export
    #:*lazy-array-lock*
    #:lazy-array
    #:lazy-array-p
@@ -114,17 +134,20 @@
    #:lazy-array-element-type
    #:lazy-array-rank
    #:lazy-array-size
+   #:lazy-array-dimension
+   #:lazy-array-dimensions
+   #:lazy-array-range
    #:lazy-array-ranges
    #:lazy-array-inputs
    #:lazy-array
    #:lazy-map
-   #:lazy-multiple-value-map
    #:lazy-reshape
    #:lazy-ref
    #:lazy-fuse
-   #:lazy-collapse
+   #:broadcast-for-fusion
    #:make-unknown
    #:lazy-unknowns
+   #:lazy-unknown-p
    #:empty-lazy-array
    #:empty-lazy-arrays
    #:move-axis-to-front
@@ -135,21 +158,24 @@
    #:substitute-lazy-arrays
    #:substitute-lazy-array
    #:substitute-delayed-action
+   #:compatible-with-lazy-array-p)
 
-   ;; Delayed Actions
+  ;; Delayed Actions
+  (:export
    #:delayed-action
    #:delayed-action-p
    #:delayed-action-inputs
    #:delayed-map
    #:delayed-map-p
-   #:delayed-map-operator
+   #:delayed-map-fnrecord
    #:delayed-map-inputs
    #:delayed-map-number-of-values
    #:delayed-multiple-value-map
    #:delayed-multiple-value-map-p
-   #:delayed-multiple-value-map-operator
+   #:delayed-multiple-value-map-fnrecord
    #:delayed-multiple-value-map-inputs
-   #:delayed-multiple-value-map-ntypes
+   #:delayed-multiple-value-map-values-ntype
+   #:delayed-multiple-value-map-refbits
    #:delayed-nth-value
    #:delayed-nth-value-p
    #:delayed-nth-value-number
@@ -177,31 +203,28 @@
    #:delayed-wait-delayed-action
    #:delayed-failure
    #:delayed-failure-p
-   #:delayed-failure-condition
+   #:delayed-failure-condition)
 
-   ;; Request
-   #:request
-   #:make-request
-   #:requestp
-   #:request-backend
-   #:request-lazy-arrays
-   #:request-wait
-   #:request-finish
-   #:request-finishedp
-
-   ;; Backend
+  ;; Backends
+  (:export
    #:*backend*
-   #:with-backend
+   #:with-temporary-backend
    #:backend
+   #:backendp
    #:delete-backend
    #:backend-compute
-   #:backend-schedule
+   #:backend-compute-asynchronously
    #:backend-evaluator
+   #:backend-debug-flag
    #:compute
    #:compute-list-of-arrays
-   #:schedule
+   #:compute-asynchronously
    #:wait
+   #:completedp
    #:evaluator
-
-   ;; Reference Backend
+   #:request
+   #:requestp
+   #:requestp
+   #:request-wait
+   #:request-completedp
    #:make-reference-backend))

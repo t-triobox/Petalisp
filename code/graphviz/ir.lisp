@@ -1,4 +1,4 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.graphviz)
 
@@ -23,6 +23,34 @@
 
 (defmethod graphviz-default-graph ((node petalisp.ir:buffer))
   'ir-graph)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Tasks as Subgraphs
+
+(defvar *task-cluster-table*)
+
+(defmethod cl-dot:generate-graph-from-roots :around
+    ((graph ir-graph) roots &optional attributes)
+  (declare (ignore graph roots attributes))
+  (let ((*task-cluster-table* (make-hash-table)))
+    (call-next-method)))
+
+(defun task-cluster (task)
+  (alexandria:ensure-gethash
+   task
+   *task-cluster-table*
+   (make-instance 'cl-dot:cluster
+     :attributes
+     (list :label (format nil "task-~D" (petalisp.ir:task-number task))
+           :penwidth 2.0
+           :color "gray"))))
+
+(defmethod cl-dot:graph-object-cluster ((graph ir-graph) (kernel petalisp.ir:kernel))
+  (task-cluster (petalisp.ir:kernel-task kernel)))
+
+(defmethod cl-dot:graph-object-cluster ((graph ir-graph) (buffer petalisp.ir:buffer))
+  (task-cluster (petalisp.ir:buffer-task buffer)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -81,7 +109,7 @@
 (defmethod graphviz-node-attributes
     ((graph ir-graph)
      (node petalisp.ir:buffer))
-  `(:fillcolor "#ABCEF3"))
+  `(:fillcolor "#ABCEE3"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -91,9 +119,12 @@
     ((graph ir-graph)
      (buffer petalisp.ir:buffer))
   `(("shape" . ,(stringify (petalisp.ir:buffer-shape buffer)))
-    ("type" . ,(stringify (petalisp.type-inference:type-specifier (petalisp.ir:buffer-ntype buffer))))
+    ("type" . ,(stringify (typo:ntype-type-specifier (petalisp.ir:buffer-ntype buffer))))
     ("depth" . ,(stringify (petalisp.ir:buffer-depth buffer)))
-    ("storage" . ,(stringify (type-of (petalisp.ir:buffer-storage buffer))))))
+    ("number" . ,(stringify (petalisp.ir:buffer-number buffer)))
+    ("reuse-potential" . ,(stringify (petalisp.ir:buffer-reuse-potential buffer)))
+    ,@(when (petalisp.ir:buffer-storage buffer)
+        `(("storage" . ,(stringify (type-of (petalisp.ir:buffer-storage buffer))))))))
 
 (defun hide-buffers (references)
   (subst-if :buffer #'petalisp.ir:bufferp references))
@@ -106,6 +137,8 @@
     ((graph ir-graph)
      (kernel petalisp.ir:kernel))
   `(("iteration-space" . ,(stringify (petalisp.ir:kernel-iteration-space kernel)))
+    ("number" . ,(stringify (petalisp.ir:kernel-number kernel)))
+    ("reuse-potential" . ,(stringify (petalisp.ir:kernel-reuse-potential kernel)))
     ,@(let ((instructions '()))
         (petalisp.ir:map-kernel-instructions
          (lambda (instruction)
@@ -118,7 +151,11 @@
                (etypecase instruction
                  (petalisp.ir:call-instruction
                   (format nil "~S~{ ~S~}~%"
-                          (petalisp.ir:call-instruction-operator instruction)
+                          (or
+                           (typo:fnrecord-name
+                            (petalisp.ir:call-instruction-fnrecord instruction))
+                           (typo:fnrecord-function
+                            (petalisp.ir:call-instruction-fnrecord instruction)))
                           (mapcar #'simplify-input
                                   (petalisp.ir:instruction-inputs instruction))))
                  (petalisp.ir:iref-instruction
@@ -126,13 +163,13 @@
                           (petalisp.ir:instruction-transformation instruction)))
                  (petalisp.ir:load-instruction
                   (format nil "load ~S ~S~%"
-                          (petalisp.type-inference:type-specifier
+                          (typo:ntype-type-specifier
                            (petalisp.ir:buffer-ntype
                             (petalisp.ir:load-instruction-buffer instruction)))
                           (petalisp.ir:instruction-transformation instruction)))
                  (petalisp.ir:store-instruction
                   (format nil "store ~S ~S ~S~%"
-                          (petalisp.type-inference:type-specifier
+                          (typo:ntype-type-specifier
                            (petalisp.ir:buffer-ntype
                             (petalisp.ir:store-instruction-buffer instruction)))
                           (petalisp.ir:instruction-transformation instruction)

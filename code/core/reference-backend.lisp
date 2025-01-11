@@ -1,11 +1,4 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
-
 (in-package #:petalisp.core)
-
-;;; The purpose of the reference backend is to compute reference solutions
-;;; for automated testing. It is totally acceptable that this
-;;; implementation is slow or eagerly consing, as long as it is obviously
-;;; correct.
 
 (defclass reference-backend (backend)
   ())
@@ -24,13 +17,13 @@
 (defun compute-delayed-array (lazy-array)
   (let* ((shape (lazy-array-shape lazy-array))
          (element-type (lazy-array-element-type lazy-array))
-         (array (make-array (shape-dimensions shape) :element-type element-type)))
+         (storage (make-array (shape-dimensions shape) :element-type element-type)))
     (map-shape
      (lambda (index)
-       (setf (apply #'aref array index)
+       (setf (apply #'aref storage index)
              (lazy-array-value lazy-array index)))
      shape)
-    array))
+    (make-delayed-array storage)))
 
 (defun lazy-array-value (lazy-array index)
   (alexandria:ensure-gethash
@@ -40,9 +33,11 @@
     (make-hash-table :test #'equal))
    (delayed-action-value (lazy-array-delayed-action lazy-array) index)))
 
+(defgeneric delayed-action-value (delayed-action index))
+
 (defmethod delayed-action-value
     ((delayed-map delayed-map) index)
-  (apply (delayed-map-operator delayed-map)
+  (apply (typo:fnrecord-function (delayed-map-fnrecord delayed-map))
          (mapcar
           (lambda (input)
             (lazy-array-value input index))
@@ -51,7 +46,8 @@
 (defmethod delayed-action-value
     ((delayed-multiple-value-map delayed-multiple-value-map) index)
   (multiple-value-list
-   (apply (delayed-multiple-value-map-operator delayed-multiple-value-map)
+   (apply (typo:fnrecord-function
+           (delayed-multiple-value-map-fnrecord delayed-multiple-value-map))
           (mapcar
            (lambda (input)
              (lazy-array-value input index))
@@ -67,7 +63,7 @@
     ((delayed-reshape delayed-reshape) index)
   (lazy-array-value
    (delayed-reshape-input delayed-reshape)
-   (transform-sequence index (delayed-reshape-transformation delayed-reshape))))
+   (transform-index index (delayed-reshape-transformation delayed-reshape))))
 
 (defmethod delayed-action-value
     ((delayed-fuse delayed-fuse) index)
@@ -87,18 +83,11 @@
 
 (defmethod delayed-action-value
     ((delayed-nop delayed-nop) index)
-  (error "A delayed NOP should never be executed."))
+  (values))
 
 (defmethod delayed-action-value
     ((delayed-unknown delayed-unknown) index)
   (error "Attempt to evaluate a graph that contains unknowns."))
-
-(defmethod delayed-action-value
-    ((delayed-wait delayed-wait) index)
-  (wait (delayed-wait-request delayed-wait))
-  (delayed-action-value
-   (delayed-wait-delayed-action delayed-wait)
-   index))
 
 (defmethod delayed-action-value
     ((delayed-failure delayed-failure) index)

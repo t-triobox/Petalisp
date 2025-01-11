@@ -1,8 +1,8 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.test-suite)
 
-(check-package '#:petalisp.core)
+#+(or) (check-package '#:petalisp.core)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -10,23 +10,22 @@
 
 (define-test range-test
   ;; Range constructors
-  (is (rangep (range 1 1 0)))
   (is (rangep (apply #'range (list 1 3 2))))
   (signals error (range 1 99 0))
   ;; Range operations
   (labels ((test-range (range)
-             (declare (notinline size-one-range-p range-end))
+             (declare (notinline range-with-size-one-p range-end))
              (is (rangep range))
              (with-output-to-string (stream)
                (print range stream))
              (if (= 1 (range-size range))
-                 (is (size-one-range-p range))
-                 (is (not (size-one-range-p range))))
-             (is (range-equal range range))
-             (cond ((empty-range-p range)
+                 (is (range-with-size-one-p range))
+                 (is (not (range-with-size-one-p range))))
+             (is (range= range range))
+             (cond ((range-emptyp range)
                     (is (zerop (range-size range)))
                     (return-from test-range))
-                   ((size-one-range-p range)
+                   ((range-with-size-one-p range)
                     (is (= (range-start range)
                            (range-last range))))
                    (t
@@ -46,7 +45,7 @@
                    (differences1 (range-difference-list range1 range2))
                    (differences2 (range-difference-list range2 range1)))
                (when (range-intersectionp range1 range2)
-                 (is (range-equal intersection1 intersection2))
+                 (is (range= intersection1 intersection2))
                  (is (= (reduce #'+ differences1 :key #'range-size)
                         (- (range-size range1)
                            (range-size intersection1))))
@@ -60,32 +59,47 @@
     (test-range-pair (range 0 2) (range 1))
     (test-range-pair (range 0 99) (range 1 100))
     (test-range-pair (range 0 99 2) (range 3 100))
-    (test-range-pair (range 0 50 3) (range 55 100 5))))
+    (test-range-pair (range 0 50 3) (range 55 100 5))
+    (test-range-pair (range 10 50 2) (range 5 50 6))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Networks and Automatic Differentiation
+;;; Array Element Types
 
-(define-test network-test
-  (let* ((shape (~ 10))
-         (x1 (make-unknown :shape shape :element-type 'double-float))
-         (x2 (make-unknown :shape shape :element-type 'double-float))
-         (v1 (lazy #'+
-                   (lazy #'coerce (lazy #'log x1) 'double-float)
-                   (lazy #'* x1 x2)
-                   (lazy #'sin x2)))
-         (network
-           (make-network v1))
-         (g1 (make-unknown
-              :shape (lazy-array-shape v1)
-              :element-type (lazy-array-element-type v1)))
-         (gradient-fn (differentiator (list v1) (list g1)))
-         (gradient-network
-           (make-network
-            (funcall gradient-fn x1)
-            (funcall gradient-fn x2))))
-    (call-network network x1 5d0 x2 1d0)
-    (call-network gradient-network x1 1d0 x2 1d0 g1 1d0)))
+(define-test array-element-test
+  (loop for (element-type e1 e2)
+          in '((single-float 1f0 2f0)
+               (double-float 1d0 2d0)
+               (bit 0 1)
+               ((unsigned-byte 2) 1 2)
+               ((unsigned-byte 4) 1 2)
+               ((unsigned-byte 8) 1 2)
+               ((unsigned-byte 16) 1 2)
+               ((unsigned-byte 32) 1 2)
+               ((unsigned-byte 64) 1 2)
+               ((signed-byte 8) 1 2)
+               ((signed-byte 16) 1 2)
+               ((signed-byte 32) 1 2)
+               ((signed-byte 64) 1 2)
+               (fixnum 1 2)
+               ((complex single-float) #.(complex 1f0 2f0) #.(complex 3f0 4f0))
+               ((complex double-float) #.(complex 1d0 2d0) #.(complex 3d0 4d0))
+               (function #'identity #'constantly)
+               (symbol 'identity 'constantly)
+               (cons '(1) '(2))
+               (base-char #\a #\b)
+               (character #\a #\b)
+               (t 1 2))
+        do (let ((a1 (make-array 100 :element-type element-type :initial-element e1))
+                 (a2 (make-array 100 :element-type element-type :initial-element e2)))
+             (compute
+              (lazy-fuse
+               (lazy-reshape a1 (~ 0 200 2))
+               (lazy-reshape a2 (~ 0 200 2) (transform i to (1+ i)))))
+             (compute
+              (lazy-fuse
+               (lazy-reshape e1 (~ 0 200 2))
+               (lazy-reshape e2 (~ 1 200 2)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -114,7 +128,7 @@
     #(+1 -1 +2 -2 +3 -3)))
   (loop for n from 1 to 111 do
     (let* ((v (make-array n :initial-element 1 :element-type '(signed-byte 32)))
-           (i (lazy-array-indices v)))
+           (i (lazy-index-components v)))
       (multiple-value-bind (max imax min imin)
           (lazy-reduce
            (lambda (lmax limax lmin limin rmax rimax rmin rimin)
@@ -145,32 +159,8 @@
   (compute (lazy-reshape 4 (~ 5)))
   (compute (lazy-reshape #(1 2 3) (transform i to (- i))) #(3 2 1))
   (compute (lazy-reshape #(1 2 3 4) (~ 1 3)))
-  (compute (lazy-reshape (lazy-shape-indices (~ 1 10)) (~ 3 ~ 3)))
   (compute (lazy-reshape #2A((1 2) (3 4)) (transform i j to j i)))
-  (compute (lazy-reshape #(1 2 3 4) (~ 1 3) (~ 0 2 ~ 0 2)))
-  (alexandria:map-permutations
-   (lambda (shapes)
-     (compute
-      (apply #'lazy-reshape (lazy-shape-indices (~ 1 101)) shapes)))
-   (list (~ 0 5 ~ 0 5 ~ 0 4)
-         (~ 0 2 ~ 0 5 ~ 0 1 ~ 0 2 ~ 0 5)
-         (~ 1 3 ~ 1 6 ~ 1 3 ~ 1 6)
-         (~ 1 4 2 ~ 1 10 2 ~ 1 4 2 ~ 1 10 2)
-         (~ 100)))
-  (alexandria:map-permutations
-   (lambda (shapes)
-     (compute
-      (apply #'lazy-reshape (lazy-shape-indices (~ 1 201)) shapes)))
-   (list (~ 0 2 ~ 0 5 ~ 0 5 ~ 0 4)
-         (~ 0 2 ~ 0 2 ~ 0 5 ~ 0 1 ~ 0 2 ~ 0 5)
-         (~ 0 2 ~ 0 100)))
-  (alexandria:map-permutations
-   (lambda (shapes)
-     (compute
-      (apply #'lazy-reshape (lazy-shape-indices (~ 1 201)) shapes)))
-   (list (~ 0 5 ~ 0 5 ~ 0 4 ~ 0 2)
-         (~ 0 2 ~ 0 5 ~ 0 1 ~ 0 2 ~ 0 5 ~ 0 2)
-         (~ 0 100 ~ 0 2)))
+  (compute (lazy-reshape #(1 2 3 4) (~ 1 3) (deflater 1)))
   (compute
    (lazy-overwrite
     (lazy-reshape #2A((1 2 3) (4 5 6)) (transform i j to (+ 2 i) (+ 3 j)))
@@ -182,13 +172,13 @@
   (compute 1 2 3 4 5 6 7 8 9 (lazy #'+ 5 5) (lazy-reduce #'+ #(1 2 3 4 1))))
 
 (define-test indices-test
-  (compute (lazy-array-indices #(5 6 7)))
+  (compute (lazy-index-components #(5 6 7)))
   (let ((a (make-array '(2 3 4))))
-    (compute (lazy-array-indices a 1))
+    (compute (lazy-index-components a 1))
     (compute (lazy #'+
-                (lazy-array-indices a 0)
-                (lazy-array-indices a 1)
-                (lazy-array-indices a 2)))))
+                (lazy-index-components a 0)
+                (lazy-index-components a 1)
+                (lazy-index-components a 2)))))
 
 
 (define-test sum-of-pairs

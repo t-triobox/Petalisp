@@ -1,4 +1,4 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.core)
 
@@ -30,18 +30,18 @@
   ;; To make the representation of transformations unambiguous, an output
   ;; mask entry must never reference an input that has an input constraint.
   (output-mask nil :type simple-vector :read-only t)
-  ;; The scalings are a simple vector with as many entries as the output
-  ;; rank of the transformation.  Each entry is an integer representing how
-  ;; the input denoted by the corresponding entry in the output mask is to
-  ;; be scaled.
+  ;; The scalings are a simple vector with as many entries as the output rank
+  ;; of the transformation.  Each entry is a rational number, representing how
+  ;; the input denoted by the corresponding entry in the output mask is to be
+  ;; scaled.
   ;;
   ;; To make the representation of transformations unambiguous, the scaling
   ;; value must be zero if the corresponding output mask entry is NIL.
   (scalings nil :type simple-vector :read-only t)
-  ;; The offsets are a simple vector with as many entries as the output
-  ;; rank of the transformation.  Each entry is an integer representing how
-  ;; the input denoted by the corresponding entry in the output mask is to
-  ;; be shifted after scaling it.
+  ;; The offsets are a simple vector with as many entries as the output rank of
+  ;; the transformation.  Each entry is a rational number, representing how the
+  ;; input denoted by the corresponding entry in the output mask is to be
+  ;; shifted after scaling it.
   (offsets nil :type simple-vector :read-only t)
   ;; The INVERSE slot is used both to track whether a transformation is
   ;; invertible, and to cache that inverse.
@@ -73,17 +73,22 @@
          (ftype (function (rank))
                 identity-transformation))
 
+(defun transformation-identityp (transformation)
+  (declare (transformation transformation))
+  (identity-transformation-p transformation))
+
 (defun transformation-invertiblep (transformation)
-  (or (identity-transformation-p transformation)
+  (declare (transformation transformation))
+  (or (transformation-identityp transformation)
       (and (transformation-inverse transformation) t)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Generic Functions
 
-(defgeneric transformation= (transformation-1 transformation-2))
+(defgeneric transformation= (transformation1 transformation2))
 
-(defgeneric transformation-similar (transformation-1 transformation-2 delta))
+(defgeneric transformation-similar (transformation1 transformation2 delta))
 
 (defgeneric compose-two-transformations (g f))
 
@@ -95,8 +100,10 @@
 
 (defgeneric enlarge-transformation (transformation scale offset))
 
-(defgeneric transform-sequence (sequence transformation)
-  (:argument-precedence-order transformation sequence))
+(defgeneric inflate-transformation (transformation n))
+
+(defgeneric transform-index (index transformation)
+  (:argument-precedence-order transformation index))
 
 (defgeneric transform-shape (shape transformation)
   (:argument-precedence-order transformation shape))
@@ -384,9 +391,49 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; TRANSFORM-SEQUENCE
+;;; INFLATE-TRANSFORMATION
 
-(defmethod transform-sequence :before
+(defmethod inflate-transformation :around
+    ((transformation transformation)
+     (n integer))
+  (check-type n unsigned-byte "a non-negative integer")
+  (if (zerop n)
+      transformation
+      (call-next-method)))
+
+(defmethod inflate-transformation
+    ((transformation identity-transformation)
+     (n integer))
+  (identity-transformation
+   (+ (transformation-input-rank transformation) n)))
+
+(defmethod inflate-transformation
+    ((transformation hairy-transformation)
+     (n integer))
+  (let ((input-rank (+ (transformation-input-rank transformation) n))
+        (output-rank (+ (transformation-output-rank transformation) n)))
+    (let ((input-mask (make-array input-rank :initial-element nil))
+          (output-mask (make-array output-rank :initial-element (1- input-rank)))
+          (scalings (make-array output-rank :initial-element 1))
+          (offsets (make-array output-rank :initial-element 0)))
+      (replace input-mask (transformation-input-mask transformation))
+      (replace output-mask (transformation-output-mask transformation))
+      (replace scalings (transformation-scalings transformation))
+      (replace offsets (transformation-offsets transformation))
+      (dotimes (i n)
+        (setf (aref output-mask (- output-rank 1 i))
+              (- input-rank 1 i)))
+      (%make-hairy-transformation
+       input-rank output-rank
+       input-mask output-mask
+       scalings offsets
+       (and (transformation-inverse transformation) t)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; TRANSFORM-INDEX
+
+(defmethod transform-index :before
     ((sequence sequence)
      (transformation transformation))
   (unless (= (length sequence) (transformation-input-rank transformation))
@@ -395,7 +442,7 @@
            sequence (length sequence)
            transformation (transformation-input-rank transformation))))
 
-(defmethod transform-sequence :before
+(defmethod transform-index :before
     ((sequence sequence)
      (transformation hairy-transformation))
   (map nil (lambda (constraint element)
@@ -408,12 +455,12 @@
        (transformation-input-mask transformation)
        sequence))
 
-(defmethod transform-sequence
+(defmethod transform-index
     ((sequence sequence)
      (transformation identity-transformation))
   sequence)
 
-(defmethod transform-sequence
+(defmethod transform-index
     ((list list)
      (transformation hairy-transformation))
   (let ((result '()))
@@ -422,18 +469,37 @@
              (let* ((x (if (not input-index)
                            0
                            (elt list input-index)))
-                    (a*x (cond ((= 1 a) x)
-                               ((numberp x) (* a x))
+                    (a*x (cond ((numberp x) (* a x))
+                               ((= 1 a) x)
                                ((and) `(* ,a ,x))))
-                    (a*x+b (cond ((eql a*x 0) b)
+                    (a*x+b (cond ((numberp a*x) (+ a*x b))
                                  ((= b 0) a*x)
-                                 ((numberp a*x) (+ a*x b))
                                  ((= b  1) `(1+ ,a*x))
                                  ((= b -1) `(1- ,a*x))
                                  ((and) `(+ ,a*x ,b)))))
                (push A*x+b result))))
       (map-transformation-outputs #'push-output-expression transformation)
       (nreverse result))))
+
+(defmethod transform-index
+    ((vector vector)
+     (transformation hairy-transformation))
+  (let* ((output-rank (transformation-output-rank transformation))
+         (result (make-array output-rank :element-type (array-element-type vector))))
+    (map-transformation-outputs
+     (lambda (output-index input-index a b)
+       (setf (aref result output-index)
+             (let* ((x (if (not input-index) 0 (aref vector input-index)))
+                    (a*x (cond ((numberp x) (* a x))
+                               ((= 1 a) x)
+                               ((and) `(* ,a ,x)))))
+               (cond ((numberp a*x) (+ a*x b))
+                     ((= b 0) a*x)
+                     ((= b  1) `(1+ ,a*x))
+                     ((= b -1) `(1- ,a*x))
+                     ((and) `(+ ,a*x ,b))))))
+     transformation)
+    result))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -457,8 +523,9 @@
           for constraint across input-mask
           for index from 0 do
             (when constraint
-              (unless (and (size-one-range-p range)
-                           (= constraint (range-start range)))
+              (unless (or (empty-range-p range)
+                          (and (range-with-size-one-p range)
+                               (= constraint (range-start range))))
                 (error "~@<The ~:R axis of the shape ~W violates ~
                            the input constraint ~W of the transformation ~W.~:@>"
                        (1+ index) shape constraint transformation))))))
@@ -473,18 +540,30 @@
      (transformation hairy-transformation))
   (let ((output-ranges (make-list (transformation-output-rank transformation)))
         (input-ranges (shape-ranges shape)))
-    (flet ((store-output-range (output-index input-index scaling offset)
-             (setf (elt output-ranges output-index)
-                   (if (not input-index)
-                       (range offset (1+ offset))
-                       (let ((input-range (elt input-ranges input-index)))
-                         (range
-                          (+ offset (* scaling (range-start input-range)))
-                          (1+ (+ offset (* scaling (range-last input-range))))
-                          (if (size-one-range-p input-range)
-                              1
-                              (* scaling (range-step input-range)))))))))
-      (map-transformation-outputs #'store-output-range transformation))
+    (map-transformation-outputs
+     (lambda (output-index input-index scaling offset)
+       (setf (elt output-ranges output-index)
+             (if (not input-index)
+                 (range offset (1+ offset))
+                 (let* ((input-range (elt input-ranges input-index)))
+                   (symbol-macrolet ((input-start (range-start input-range))
+                                     (input-last (range-last input-range))
+                                     (input-step (range-step input-range)))
+                     (cond ((empty-range-p input-range)
+                            (empty-range))
+                           ((range-with-size-one-p input-range)
+                            (range (+ (* scaling input-start) offset)
+                                   (+ (* scaling input-start) offset 1)))
+                           ((plusp scaling)
+                            (range
+                             (+ (* scaling input-start) offset)
+                             (+ (* scaling input-last) offset 1)
+                             (* scaling input-step)))
+                           ((minusp scaling)
+                            (range (+ (* scaling input-last) offset)
+                                   (+ (* scaling input-start) offset 1)
+                                   (- (* scaling input-step))))))))))
+     transformation)
     (make-shape output-ranges)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

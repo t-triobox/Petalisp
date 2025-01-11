@@ -1,6 +1,6 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.api)
 
-(defun lazy-multiple-value (function n-values &rest arrays)
-  (lazy-multiple-value-map function n-values (lazy-broadcast-list-of-arrays arrays)))
+(defun lazy-multiple-value (n-values function &rest arrays)
+  (petalisp.core:lazy-map n-values function (broadcast arrays)))

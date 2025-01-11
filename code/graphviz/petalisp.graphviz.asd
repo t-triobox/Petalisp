@@ -5,12 +5,13 @@
 
   :depends-on
   ("alexandria"
+   "closer-mop"
    "uiop"
    "trivial-features"
+   "petalisp.packages"
    "petalisp.utilities"
    "petalisp.core"
    "petalisp.ir"
-   "petalisp"
    "cl-dot")
 
   :serial t
@@ -21,4 +22,7 @@
    (:file "petalisp")
    (:file "data-flow-graph")
    (:file "ir")
+   (:file "partitioning")
+   (:file "class-diagram")
+   (:file "scheduling")
    (:file "view")))

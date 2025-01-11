@@ -1,4 +1,4 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.test-suite)
 
@@ -120,7 +120,3 @@
 
 (defun type-specifier-p (object)
   (ignore-errors (typep 42 object) t))
-
-(defun run-tests (&rest tests)
-  (with-test-harness (mapc #'funcall (alexandria:shuffle tests)))
-  (values))

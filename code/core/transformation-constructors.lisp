@@ -1,26 +1,36 @@
-;;;; © 2016-2022 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
+;;;; © 2016-2023 Marco Heisig         - license: GNU AGPLv3 -*- coding: utf-8 -*-
 
 (in-package #:petalisp.core)
 
-(defun identity-transformation (rank)
-  (petalisp.utilities:with-vector-memoization (rank)
-    (let ((input-mask (make-array rank :initial-element nil))
-          (output-mask (make-array rank))
-          (scalings (make-array rank :initial-element 1))
-          (offsets (make-array rank :initial-element 0)))
-      (loop for index below rank do
-        (setf (svref output-mask index) index))
-      (let ((result
-              (%make-identity-transformation
-               rank
-               rank
-               input-mask
-               output-mask
-               scalings
-               offsets
-               nil)))
-        (setf (transformation-inverse result) result)
-        result))))
+(defun make-identity-transformation (rank)
+  (let ((input-mask (make-array rank :initial-element nil))
+        (output-mask (make-array rank))
+        (scalings (make-array rank :initial-element 1))
+        (offsets (make-array rank :initial-element 0)))
+    (loop for index below rank do
+      (setf (svref output-mask index) index))
+    (let ((result
+            (%make-identity-transformation
+             rank
+             rank
+             input-mask
+             output-mask
+             scalings
+             offsets
+             nil)))
+      (setf (transformation-inverse result) result)
+      result)))
+
+(let* ((cache-size 100)
+       (cache (make-array cache-size)))
+  (loop for rank below cache-size do
+    (setf (svref cache rank)
+          (make-identity-transformation rank)))
+  (defun identity-transformation (rank)
+    (declare (rank rank))
+    (if (< rank cache-size)
+        (the transformation (aref cache rank))
+        (make-identity-transformation rank))))
 
 (defun make-transformation
     (&key
@@ -51,8 +61,10 @@
                         (scalings-supplied-p (length scalings))
                         (i i)))))
         (two-value-fixpoint #'narrow-input-and-output-rank nil nil))
-    (check-type input-rank rank)
-    (check-type output-rank rank)
+    (unless (typep input-rank 'rank)
+      (error "Unable to infer the input rank of the specified transformation."))
+    (unless (typep output-rank 'rank)
+      (error "Unable to infer the output rank of the specified transformation."))
     ;; Canonicalize all sequence arguments.
     (multiple-value-bind (input-mask identity-inputs-p)
         (canonicalize-inputs input-mask input-mask-supplied-p input-rank)
@@ -186,7 +198,7 @@
 ;;;
 ;;; Auxiliary Constructors
 
-(defun collapsing-transformation (shape)
+(defun deflating-transformation (shape)
   (invert-transformation
    (from-storage-transformation shape)))
 
@@ -195,8 +207,9 @@
 (defun from-storage-transformation (shape)
   (if (loop for range in (shape-ranges shape)
             always
-            (and (= 0 (range-start range))
-                 (= 1 (range-step range))))
+            (or (range-emptyp range)
+                (and (= 0 (range-start range))
+                     (= 1 (range-step range)))))
       (identity-transformation (shape-rank shape))
       (let* ((rank (shape-rank shape))
              (ranges (shape-ranges shape))
@@ -206,17 +219,22 @@
              (offsets (make-array rank)))
         (loop for range in ranges
               for index from 0 do
-                (if (size-one-range-p range)
-                    (let ((value (range-start range)))
-                      (setf (aref input-mask index) 0)
-                      (setf (aref output-mask index) nil)
-                      (setf (aref scalings index) 0)
-                      (setf (aref offsets index) value))
-                    (progn
-                      (setf (aref input-mask index) nil)
-                      (setf (aref output-mask index) index)
-                      (setf (aref scalings index) (range-step range))
-                      (setf (aref offsets index) (range-start range)))))
+                (cond ((range-emptyp range)
+                       (setf (aref input-mask index) nil)
+                       (setf (aref output-mask index) index)
+                       (setf (aref scalings index) 0)
+                       (setf (aref offsets index) 0))
+                      ((range-with-size-one-p range)
+                       (let ((value (range-start range)))
+                         (setf (aref input-mask index) 0)
+                         (setf (aref output-mask index) nil)
+                         (setf (aref scalings index) 0)
+                         (setf (aref offsets index) value)))
+                      (t
+                       (setf (aref input-mask index) nil)
+                       (setf (aref output-mask index) index)
+                       (setf (aref scalings index) (range-step range))
+                       (setf (aref offsets index) (range-start range)))))
         (%make-hairy-transformation rank rank input-mask output-mask scalings offsets t))))
 
 ;;; Returns an invertible transformation that eliminates all ranges with
@@ -226,7 +244,7 @@
          (ranges (shape-ranges shape))
          (size-one-ranges
            (loop for range in ranges
-                 count (size-one-range-p range))))
+                 count (range-with-size-one-p range))))
     (if (zerop size-one-ranges)
         (identity-transformation rank)
         (let* ((input-rank rank)
@@ -238,7 +256,7 @@
                (output-index 0))
           (loop for range in ranges
                 for input-index from 0 do
-                  (if (size-one-range-p range)
+                  (if (range-with-size-one-p range)
                       (setf (aref input-mask input-index) (range-start range))
                       (progn
                         (setf (aref output-mask output-index) input-index)
@@ -254,5 +272,5 @@
 (defun normalizing-transformation (shape)
   (let* ((f (size-one-range-removing-transformation shape))
          (s (transform-shape shape f))
-         (g (collapsing-transformation s)))
+         (g (deflating-transformation s)))
     (compose-transformations g f)))

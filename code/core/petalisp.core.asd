@@ -7,8 +7,9 @@
    "bordeaux-threads"
    "lparallel"
    "trivia"
+   "petalisp.packages"
    "petalisp.utilities"
-   "petalisp.type-inference")
+   "typo")
 
   :in-order-to ((test-op (test-op "petalisp.test-suite")))
 
@@ -20,10 +21,9 @@
    (:file "transformation")
    (:file "transformation-constructors")
    (:file "lazy-array")
-   (:file "lazy-ref")
+   (:file "lazy-reshape")
    (:file "lazy-fuse")
    (:file "lazy-map")
    (:file "substitute-lazy-arrays")
-   (:file "request")
    (:file "backend")
    (:file "reference-backend")))
